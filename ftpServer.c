@@ -32,6 +32,30 @@ void perror_exit(char *msg)
     exit(1);
 }
 
+/************************/
+/** BUILT-IN FUNCTIONS **/
+/************************/
+/* Built in functions have the form 'int builtin_NAME(char ** args)'
+ * where NAME is the name of the builtin and args is a list of
+ * arguments to that builtin.
+ *
+ * To add additional builtin functions:
+ * (1) Create the function, following the form just described.
+ * (2) Add the newly created function to getBuiltInFunc()
+ */
+
+
+/** STEP 1: Define builtin function here **/
+
+/** STEP 2: Add builtin function here **/
+int (*getBuiltInFunc(char * cmd))(char **) {
+    return NULL;
+}
+
+/****************************/
+/** END BUILT-IN FUNCTIONS **/
+/****************************/
+
 int main(int argc, char *argv[])
 {
 	int sd, client_sc, port;
@@ -84,6 +108,13 @@ int main(int argc, char *argv[])
 		if ((num_bytes = write(client_sc, response, strlen(response))) < 0)
 			perror_exit("error writing to socket");
 		
+    // Check if it's a builtin, and execute if it is
+    int (*func)() = getBuiltInFunc(buf);
+    if (func) {
+      func();
+      continue;
+    }
+
 		close(client_sc);
 	}
 
