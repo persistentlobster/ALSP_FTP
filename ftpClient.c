@@ -29,6 +29,39 @@ void perror_exit(const char *msg) {
   exit(EXIT_FAILURE);
 }
 
+/************************/
+/** BUILT-IN FUNCTIONS **/
+/************************/
+/* Built in functions have the form 'int builtin_NAME(char ** args)'
+ * where NAME is the name of the builtin and args is a list of
+ * arguments to that builtin.
+ *
+ * To add additional builtin functions:
+ * (1) Create the function, following the form just described.
+ * (2) Add the newly created function to getBuiltInFunc()
+ */
+
+
+/** STEP 1: Define builtin function here **/
+
+// Exits the shell.
+int builtin_exit(char ** args) {
+  printf("Exiting...\n");
+  exit(EXIT_SUCCESS);
+}
+
+/** STEP 2: Add builtin function here **/
+int (*getBuiltInFunc(char * cmd))(char **) {
+  if (strcmp(cmd, "exit") == 0)
+    return &builtin_exit;
+  else
+    return NULL;
+}
+
+/****************************/
+/** END BUILT-IN FUNCTIONS **/
+/****************************/
+
 /************ MAIN PROGRAM **************/
 
 int main(int argc, char **argv) {
@@ -47,7 +80,7 @@ int main(int argc, char **argv) {
 
   while (1) {
     memset(&srv_addr, 0, sizeof(srv_addr)); 
-    srv_addr.sin_family = AF_INET;							// IPv4
+    srv_addr.sin_family = AF_INET;              // IPv4
     srv_addr.sin_addr.s_addr = inet_addr(host); // resolve hostname
     srv_addr.sin_port = htons(port);            // convert int to network formatted uint16_t
 
@@ -61,9 +94,14 @@ int main(int argc, char **argv) {
     printf("> ");
     fgets(buf, BUF_MAX, stdin);
 
-    if (strncmp(buf, "exit", 4) == 0) {
-      printf("Exiting...\n");
-      exit(EXIT_SUCCESS);
+    // remove '\n'
+    buf[strlen(buf)-1] = '\0';
+
+    // Check if it's a builtin, and execute if it is
+    int (*func)() = getBuiltInFunc(buf);
+    if (func) {
+      func();
+      continue;
     }
 
     if ((bytes_sent = write(sd, buf, strlen(buf))) < 0)
