@@ -7,13 +7,6 @@
  * listens over a connection with the client for incoming requests.
 */
 
-/*#include <sys/socket.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <netinet/in.h>
-
-*/
-
 #include <stdio.h>
 #include <sys/types.h> 
 #include <sys/socket.h>
@@ -23,13 +16,87 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
+#include <limits.h>
+#include <fcntl.h>
 
 int BUF_MAX = 500;
 
-void perror_exit(char *msg)
-{
+/**
+ * prints a message from the user followed by the msg associated
+ * with errno and exits.
+ */
+void perror_exit(char *msg) {
     perror(msg);
     exit(1);
+}
+
+/**
+ * Returns the number of tokens separated by the delimiter
+ */
+int countArgsToken(const char *buf, char * delim) {
+  int count = 0;
+  char * token;
+  char bufCopy[strlen(buf)+ 1];
+    
+  if (!buf)
+    return -1;
+
+  strcpy(bufCopy, buf);
+  token = strtok(bufCopy, delim); 
+  while (token != NULL) {
+    ++count;
+    token = strtok(NULL, delim);
+  }
+  return count;
+}
+
+/**
+ * Genereal purpose function that parses src on the specified token
+ * using strtok. Result[] is filled with an array of pointers to the
+ * beginning of each null-terminated token.
+ */
+void parseOnToken(char *src, char *result[], char *token) {
+  int i=0;
+  char *arg;
+
+  arg = strtok(src, token);
+  while (arg != NULL) {
+    result[i++] = arg;
+    arg = strtok(NULL, token);
+  }
+  result[i] = NULL;
+}
+
+/**
+ * Creates a file (filename) with contents read from socket (sd).
+ * Returns number of bytes written on success, or -1 on failure.
+ */
+int recvfile(int sd, const char *filename, int filesize) {
+  mode_t MODE = (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);  // Set perms to 644
+  int fd_dst, num_bytes;
+  char *buf[filesize];
+  
+  memset(buf, 0, filesize);
+
+  // 1. Create/overwrite file
+  if ((fd_dst = open(filename, O_WRONLY | O_CREAT | O_TRUNC, MODE)) < 0) {
+    return -1;
+  }
+  // 2. Read file contents from socket. NOTE: Do NOT use strlen as there could be a '\n' in buf
+  while ((num_bytes = read(sd, buf, filesize)) != 0) {
+    if (num_bytes < 0) {
+      return -1;
+    }
+    // 3. Write contents to file
+    if ((num_bytes = write(fd_dst, buf, filesize)) < 0) {
+      return -1;
+    }
+    printf("Wrote %d bytes\n", num_bytes);
+    if (num_bytes == filesize)
+      break;
+  }
+  close(fd_dst);
+  return num_bytes;
 }
 
 /************************/
@@ -56,13 +123,10 @@ int (*getBuiltInFunc(char * cmd))(char **) {
 /** END BUILT-IN FUNCTIONS **/
 /****************************/
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
 	int sd, client_sc, port;
 	char buf[BUF_MAX];
-	char *response;
 	struct sockaddr_in serv_addr;
-	int num_bytes;
 	time_t t;
 	struct tm tm;
 	
@@ -92,21 +156,50 @@ int main(int argc, char *argv[])
 		if ((client_sc = accept(sd, (struct sockaddr *) NULL, NULL)) < 0) 
 			perror_exit("error accepting request");
 		
+    // Read command from client
 		memset(buf, 0, BUF_MAX);
-		num_bytes = read(client_sc, buf, BUF_MAX-1);
-		
-		if (num_bytes < 0) 
-			perror_exit("ERROR reading from socket");
-		
+    dup2(client_sc, 0);
+    fgets(buf, BUF_MAX, stdin);
+    buf[strlen(buf)-1] = '\0';
+
+    /****************** BEGIN PROCESSING PUT CMD *******************/
+
+    if (strncmp(buf, "put", 3) == 0) {
+      printf("received \"put\" command from client\n");
+      printf("buf is: %s\n", buf);
+
+      int arg_count = countArgsToken(buf, " ");
+      if (arg_count != 2) {
+        fprintf(stderr, "Error: expected 2 tokens but received %d\n", arg_count);
+        continue;
+      }
+      char *args[arg_count + 1];
+      parseOnToken(buf, args, " ");
+      char *file = args[1];
+
+      // Read size of file that will be sent over socket
+      int filesize;
+      if (read(client_sc, (char *) &filesize, sizeof(filesize)) < 0) {
+        perror_exit("read error");
+      }
+      filesize = ntohl(filesize);
+
+      // Receive the file
+      if (recvfile(client_sc, file, filesize) < 0)
+        perror_exit("recvfile error");
+
+      /****************** END PROCESSING PUT CMD *******************/
+    }
+
 		t = time(NULL);
 		tm = *localtime(&t);
 
-		printf("received message at %d:%d:%d : %s\n", 
-					 tm.tm_hour, tm.tm_min, tm.tm_sec, buf);
+		// printf("received message at %d:%d:%d : %s\n", 
+		// 			 tm.tm_hour, tm.tm_min, tm.tm_sec, buf);
 	
-		response = "message received";	
-		if ((num_bytes = write(client_sc, response, strlen(response))) < 0)
-			perror_exit("error writing to socket");
+		// response = "message received";	
+		// if ((num_bytes = write(client_sc, response, strlen(response))) < 0)
+		// 	perror_exit("error writing to socket");
 		
     // Check if it's a builtin, and execute if it is
     int (*func)() = getBuiltInFunc(buf);
