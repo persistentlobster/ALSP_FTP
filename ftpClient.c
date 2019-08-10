@@ -20,7 +20,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 
-int BUF_MAX = 500;
+int BUF_MAX = 4096;
 
 /**
  * prints a message from the user followed by the msg associated
@@ -78,35 +78,46 @@ parseOnToken(char *src, char *result[], char *token)
  */
 int sndfile(int sd, int fd, char *filename) {
   struct stat st;
-  int bytes_recv, bytes_sent, filesize, sendsize;
+  int bytes_recv, num_bytes = 0;
+  unsigned long filesize, sendsize;
+  char *buf[BUF_MAX];
+
+  memset(buf, 0, BUF_MAX);
 
   // Get file size
   if (stat(filename, &st) < 0) {
     return -1;
   }
-  filesize = st.st_size;
-  sendsize = htonl(filesize);
+  filesize = (unsigned long) st.st_size;
+  sendsize = (unsigned long) htonl(filesize);
 
   // Send file size to server
   if (write(sd, (char *) &sendsize, sizeof(sendsize)) < 0) {
     return -1;
   }
-  char *buf[filesize];
-  memset(buf, 0, filesize);
+  printf("File size is %lu bytes\n", filesize);
 
   // Read the file until there is nothing left to read
-  while ((bytes_recv = read(fd, buf, BUF_MAX-1)) != 0) {
+  while ((bytes_recv = read(fd, buf, BUF_MAX)) != 0) {
     if (bytes_recv < 0) {
       return -1;
     }
+
     // Write file contents to socket
-    if ((bytes_sent = write(sd, buf, filesize)) < 0) {
-      return -1;
+    void *bufp = buf;
+    while (bytes_recv > 0) {
+      int bytes_sent = write(sd, bufp, bytes_recv);
+      if (bytes_sent <= 0) {
+          perror_exit("write error");
+      }
+      bytes_recv -= bytes_sent;
+      bufp += bytes_sent;
+      num_bytes += bytes_sent;
     }
-    printf("Wrote %d bytes\n", bytes_sent);
   }
+  printf("Total bytes written: %d\n", num_bytes);
   close(fd);
-  return bytes_sent;
+  return num_bytes;
 }
 
 
@@ -194,10 +205,15 @@ int main(int argc, char **argv) {
     if (strncmp(buf, "put", 3) == 0) {
       printf("begin processing \"put\" command\n");
 
+      // Send command size to server
+      int size = htonl(strlen(buf));
+      write(sd, (char *) &size, sizeof(size));
+
       // Send command to server
       if ((bytes_sent = write(sd, buf, strlen(buf))) < 0)
         perror_exit("error sending message");
 
+      // Chomp newline
       buf[strlen(buf)-1] = '\0';
 
       int arg_count = countArgsToken(buf, " ");

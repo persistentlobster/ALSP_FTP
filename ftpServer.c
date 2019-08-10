@@ -19,7 +19,7 @@
 #include <limits.h>
 #include <fcntl.h>
 
-int BUF_MAX = 500;
+int BUF_MAX = 4096;
 
 /**
  * prints a message from the user followed by the msg associated
@@ -71,30 +71,49 @@ void parseOnToken(char *src, char *result[], char *token) {
  * Creates a file (filename) with contents read from socket (sd).
  * Returns number of bytes written on success, or -1 on failure.
  */
-int recvfile(int sd, const char *filename, int filesize) {
+int recvfile(int sd, const char *filename) {
   mode_t MODE = (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);  // Set perms to 644
-  int fd_dst, num_bytes;
-  char *buf[filesize];
+  int fd_dst, bytes_recv, num_bytes = 0, total_read = 0;
+  char *buf[BUF_MAX];
+  unsigned long filesize;
   
-  memset(buf, 0, filesize);
+  memset(buf, 0, BUF_MAX);
+
+  // Read size of file that will be sent over socket
+  if (read(sd, (char *) &filesize, sizeof(filesize)) < 0) {
+    perror_exit("read error");
+  }
+  filesize = (unsigned long) ntohl(filesize);
+  printf("About to receive %lu bytes\n", filesize);
 
   // 1. Create/overwrite file
   if ((fd_dst = open(filename, O_WRONLY | O_CREAT | O_TRUNC, MODE)) < 0) {
     return -1;
   }
+
   // 2. Read file contents from socket. NOTE: Do NOT use strlen as there could be a '\n' in buf
-  while ((num_bytes = read(sd, buf, filesize)) != 0) {
-    if (num_bytes < 0) {
+  while ((bytes_recv = read(sd, buf, BUF_MAX)) != 0) {
+    total_read += bytes_recv;
+    if (bytes_recv < 0) {
       return -1;
     }
-    // 3. Write contents to file
-    if ((num_bytes = write(fd_dst, buf, filesize)) < 0) {
-      return -1;
+
+    // 3. Write contents to file until all bytes that have been read have been written
+    void *bufp = buf;
+    while (bytes_recv > 0) {
+      int bytes_sent = write(fd_dst, bufp, bytes_recv);
+      if (bytes_sent <= 0) {
+          perror_exit("write error");
+      }
+      bytes_recv -= bytes_sent;
+      bufp += bytes_sent;
+      num_bytes += bytes_sent;
     }
-    printf("Wrote %d bytes\n", num_bytes);
-    if (num_bytes == filesize)
+    if (num_bytes == filesize)    // Done
       break;
   }
+  printf("Total bytes read: %d\n", total_read);
+  printf("Total bytes written: %d\n", num_bytes);
   close(fd_dst);
   return num_bytes;
 }
@@ -156,10 +175,20 @@ int main(int argc, char *argv[]) {
 		if ((client_sc = accept(sd, (struct sockaddr *) NULL, NULL)) < 0) 
 			perror_exit("error accepting request");
 		
+    // Read command size from client
+    int size;
+    read(client_sc, &size, sizeof(size));
+    size = ntohl(size);
+
     // Read command from client
 		memset(buf, 0, BUF_MAX);
-    dup2(client_sc, 0);
-    fgets(buf, BUF_MAX, stdin);
+    // dup2(client_sc, 0);
+    // fgets(buf, BUF_MAX, stdin);
+
+    read(client_sc, buf, size);
+    printf("cmd size is: %d\n", size);
+
+    // Chomp newline
     buf[strlen(buf)-1] = '\0';
 
     /****************** BEGIN PROCESSING PUT CMD *******************/
@@ -177,15 +206,8 @@ int main(int argc, char *argv[]) {
       parseOnToken(buf, args, " ");
       char *file = args[1];
 
-      // Read size of file that will be sent over socket
-      int filesize;
-      if (read(client_sc, (char *) &filesize, sizeof(filesize)) < 0) {
-        perror_exit("read error");
-      }
-      filesize = ntohl(filesize);
-
       // Receive the file
-      if (recvfile(client_sc, file, filesize) < 0)
+      if (recvfile(client_sc, file) < 0)
         perror_exit("recvfile error");
 
       /****************** END PROCESSING PUT CMD *******************/
@@ -213,5 +235,3 @@ int main(int argc, char *argv[]) {
 
   exit(EXIT_SUCCESS);
 }
-
-
