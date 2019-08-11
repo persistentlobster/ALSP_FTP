@@ -20,6 +20,8 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 
+const char *FILE_OK = "received command";
+
 int BUF_MAX = 4096;
 
 /**
@@ -210,7 +212,7 @@ int (*getBuiltInFunc(char * cmd))(char **) {
 int main(int argc, char **argv) {
   struct sockaddr_in srv_addr;
   char buf[BUF_MAX];
-  int port, sd, bytes_sent;
+  int port, sd, bytes_sent, bytes_recv;
   char *host;
   
   if (argc != 3) {
@@ -303,23 +305,40 @@ int main(int argc, char **argv) {
       if ((bytes_sent = write(sd, buf, strlen(buf))) < 0)
         perror_exit("error sending message");
 
-      // Chomp newline
-      buf[strlen(buf)-1] = '\0';
+      // Receive response from server
+      int len;
+      if ((bytes_recv = read(sd, &len, sizeof(len))) < 0)
+        perror_exit("read error");
+      
+      len = ntohl(len);
+      char response[len+1];
+      memset(response, 0, len+1);
+      if ((read(sd, &response, len)) < 0)
+        perror_exit("read error");
 
-      int arg_count = countArgsToken(buf, " ");
-      if (arg_count != 2) {
-        fprintf(stderr, "Error: expected 2 tokens but received %d\n", arg_count);
+      printf("response: %s\n", response);
+
+      if (strcmp(response, FILE_OK) == 0) {
+        buf[strlen(buf)-1] = '\0';
+
+        int arg_count = countArgsToken(buf, " ");
+        if (arg_count != 2) {
+          fprintf(stderr, "Error: expected 2 tokens but received %d\n", arg_count);
+          continue;
+        }
+        char *args[arg_count + 1];
+        parseOnToken(buf, args, " ");
+        char *file = args[1];
+
+        // Receive the file
+        if (recvfile(sd, file) < 0)
+          perror_exit("recvfile error");
+
+      } else {
+        fprintf(stderr, "error: %s\n", response);
         continue;
-      }
-      char *args[arg_count + 1];
-      parseOnToken(buf, args, " ");
-      char *file = args[1];
-
-      // Receive the file
-      if (recvfile(sd, file) < 0)
-        perror_exit("recvfile error");
+      }      
     }
-
 		//memset(buf, 0, BUF_MAX);
 
     // if ((bytes_recv = recv(sd, buf, BUF_MAX, MSG_WAITALL)) < 0)

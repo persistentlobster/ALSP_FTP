@@ -19,6 +19,9 @@
 #include <limits.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <errno.h>
+
+const char *FILE_OK = "received command";
 
 int BUF_MAX = 4096;
 
@@ -276,9 +279,34 @@ int main(int argc, char *argv[]) {
       // Open the file for reading
       mode_t MODE = (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
       int fd;
-      if (access(file, R_OK) < 0) {
-        perror_exit("file access error");
+
+      int err;
+      char *response;
+      if ((err = access(file, R_OK)) < 0) {
+        switch (errno) {
+          case ENOENT:
+            response = "file does not exist";
+            break;
+          case EACCES:
+            response = "permission denied";
+            break;
+          default:
+            response = "an unknown error occured";
+            break;
+        }
+      } else {
+        response = FILE_OK;
       }
+      int len = htonl(strlen(response));
+      if (write(client_sc, &len, sizeof(len)) < 0)
+        perror_exit("write error");
+      
+      if (write(client_sc, response, strlen(response)) < 0)
+        perror_exit("write error");
+      
+      if (err < 0)
+        continue;
+
       if ((fd = open(file, O_RDONLY, MODE)) < 0) {
         perror_exit("open error");
       }
