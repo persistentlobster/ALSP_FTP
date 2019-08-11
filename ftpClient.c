@@ -120,6 +120,57 @@ int sndfile(int sd, int fd, char *filename) {
   return num_bytes;
 }
 
+/**
+ * Creates a file (filename) with contents read from socket (sd).
+ * Returns number of bytes written on success, or -1 on failure.
+ */
+int recvfile(int sd, const char *filename) {
+  mode_t MODE = (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);  // Set perms to 644
+  int fd_dst, bytes_recv, num_bytes = 0, total_read = 0;
+  char *buf[BUF_MAX];
+  unsigned long filesize;
+  
+  memset(buf, 0, BUF_MAX);
+
+  // Read size of file that will be sent over socket
+  if (read(sd, (char *) &filesize, sizeof(filesize)) < 0) {
+    perror_exit("read error");
+  }
+  filesize = (unsigned long) ntohl(filesize);
+  printf("About to receive %lu bytes\n", filesize);
+
+  // 1. Create/overwrite file
+  if ((fd_dst = open(filename, O_WRONLY | O_CREAT | O_TRUNC, MODE)) < 0) {
+    return -1;
+  }
+
+  // 2. Read file contents from socket. NOTE: Do NOT use strlen as there could be a '\n' in buf
+  while ((bytes_recv = read(sd, buf, BUF_MAX)) != 0) {
+    total_read += bytes_recv;
+    if (bytes_recv < 0) {
+      return -1;
+    }
+
+    // 3. Write contents to file until all bytes that have been read have been written
+    void *bufp = buf;
+    while (bytes_recv > 0) {
+      int bytes_sent = write(fd_dst, bufp, bytes_recv);
+      if (bytes_sent <= 0) {
+          perror_exit("write error");
+      }
+      bytes_recv -= bytes_sent;
+      bufp += bytes_sent;
+      num_bytes += bytes_sent;
+    }
+    if (num_bytes == filesize)    // Done
+      break;
+  }
+  printf("Total bytes read: %d\n", total_read);
+  printf("Total bytes written: %d\n", num_bytes);
+  close(fd_dst);
+  return num_bytes;
+}
+
 
 /************************/
 /** BUILT-IN FUNCTIONS **/
@@ -239,8 +290,35 @@ int main(int argc, char **argv) {
       if (sndfile(sd, fd, file) < 0) {
         perror("sndfile error");
       }
-    }
     /************* END PROCESSING PUT CMD *************/
+
+    } else if (strncmp(buf, "get", 3) == 0) {
+      printf("begin processing \"put\" command\n");
+
+      // Send command size to server
+      int size = htonl(strlen(buf));
+      write(sd, (char *) &size, sizeof(size));
+
+      // Send command to server
+      if ((bytes_sent = write(sd, buf, strlen(buf))) < 0)
+        perror_exit("error sending message");
+
+      // Chomp newline
+      buf[strlen(buf)-1] = '\0';
+
+      int arg_count = countArgsToken(buf, " ");
+      if (arg_count != 2) {
+        fprintf(stderr, "Error: expected 2 tokens but received %d\n", arg_count);
+        continue;
+      }
+      char *args[arg_count + 1];
+      parseOnToken(buf, args, " ");
+      char *file = args[1];
+
+      // Receive the file
+      if (recvfile(sd, file) < 0)
+        perror_exit("recvfile error");
+    }
 
 		//memset(buf, 0, BUF_MAX);
 
