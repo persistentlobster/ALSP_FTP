@@ -18,6 +18,10 @@
 #include <time.h>
 #include <limits.h>
 #include <fcntl.h>
+#include <sys/stat.h>
+#include <errno.h>
+
+const char *FILE_OK = "received command";
 
 int BUF_MAX = 4096;
 
@@ -65,6 +69,54 @@ void parseOnToken(char *src, char *result[], char *token) {
     arg = strtok(NULL, token);
   }
   result[i] = NULL;
+}
+
+/**
+ * Reads the contents from a file and sends to server over socket
+ * Returns number of bytes sent on success, or -1 on failure.
+ */
+int sndfile(int sd, int fd, char *filename) {
+  struct stat st;
+  int bytes_recv, num_bytes = 0;
+  unsigned long filesize, sendsize;
+  char *buf[BUF_MAX];
+
+  memset(buf, 0, BUF_MAX);
+
+  // Get file size
+  if (stat(filename, &st) < 0) {
+    return -1;
+  }
+  filesize = (unsigned long) st.st_size;
+  sendsize = (unsigned long) htonl(filesize);
+
+  // Send file size to server
+  if (write(sd, (char *) &sendsize, sizeof(sendsize)) < 0) {
+    return -1;
+  }
+  printf("File size is %lu bytes\n", filesize);
+
+  // Read the file until there is nothing left to read
+  while ((bytes_recv = read(fd, buf, BUF_MAX)) != 0) {
+    if (bytes_recv < 0) {
+      return -1;
+    }
+
+    // Write file contents to socket
+    void *bufp = buf;
+    while (bytes_recv > 0) {
+      int bytes_sent = write(sd, bufp, bytes_recv);
+      if (bytes_sent <= 0) {
+          perror_exit("write error");
+      }
+      bytes_recv -= bytes_sent;
+      bufp += bytes_sent;
+      num_bytes += bytes_sent;
+    }
+  }
+  printf("Total bytes written: %d\n", num_bytes);
+  close(fd);
+  return num_bytes;
 }
 
 /**
@@ -211,6 +263,58 @@ int main(int argc, char *argv[]) {
         perror_exit("recvfile error");
 
       /****************** END PROCESSING PUT CMD *******************/
+    
+    } else if (strncmp(buf, "get", 3) == 0) {
+      printf("received \"get\" command from client\n");
+
+      int arg_count = countArgsToken(buf, " ");
+      if (arg_count != 2) {
+        fprintf(stderr, "Error: expected 2 tokens but received %d\n", arg_count);
+        continue;
+      }
+      char *args[arg_count + 1];
+      parseOnToken(buf, args, " ");
+      char *file = args[1];
+
+      // Open the file for reading
+      mode_t MODE = (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+      int fd;
+
+      int err;
+      char *response;
+      if ((err = access(file, R_OK)) < 0) {
+        switch (errno) {
+          case ENOENT:
+            response = "file does not exist";
+            break;
+          case EACCES:
+            response = "permission denied";
+            break;
+          default:
+            response = "an unknown error occured";
+            break;
+        }
+      } else {
+        response = FILE_OK;
+      }
+      int len = htonl(strlen(response));
+      if (write(client_sc, &len, sizeof(len)) < 0)
+        perror_exit("write error");
+      
+      if (write(client_sc, response, strlen(response)) < 0)
+        perror_exit("write error");
+      
+      if (err < 0)
+        continue;
+
+      if ((fd = open(file, O_RDONLY, MODE)) < 0) {
+        perror_exit("open error");
+      }
+      
+      // Send the file to the server
+      if (sndfile(client_sc, fd, file) < 0) {
+        perror("sndfile error");
+      }
     }
 
 		t = time(NULL);
