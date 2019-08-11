@@ -175,10 +175,18 @@ int main(int argc, char *argv[]) {
 		if ((client_sc = accept(sd, (struct sockaddr *) NULL, NULL)) < 0) 
 			perror_exit("error accepting request");
 		
+    // Read command size from client
+    int size;
+    read(client_sc, &size, sizeof(size));
+    size = ntohl(size);
+
     // Read command from client
 		memset(buf, 0, BUF_MAX);
-    dup2(client_sc, 0);
-    fgets(buf, BUF_MAX, stdin);
+    // dup2(client_sc, 0);
+    // fgets(buf, BUF_MAX, stdin);
+
+    read(client_sc, buf, size);
+    printf("cmd size is: %d\n", size);
 
     // Chomp newline
     buf[strlen(buf)-1] = '\0';
@@ -227,5 +235,3 @@ int main(int argc, char *argv[]) {
 
   exit(EXIT_SUCCESS);
 }
-
-

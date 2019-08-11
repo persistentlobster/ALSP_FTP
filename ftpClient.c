@@ -205,6 +205,10 @@ int main(int argc, char **argv) {
     if (strncmp(buf, "put", 3) == 0) {
       printf("begin processing \"put\" command\n");
 
+      // Send command size to server
+      int size = htonl(strlen(buf));
+      write(sd, (char *) &size, sizeof(size));
+
       // Send command to server
       if ((bytes_sent = write(sd, buf, strlen(buf))) < 0)
         perror_exit("error sending message");
