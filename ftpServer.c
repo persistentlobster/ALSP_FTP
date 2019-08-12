@@ -140,7 +140,7 @@ void run_loop(int client_sc) {
       // Check if it's a builtin, and execute if it is
       int (*func)() = getBuiltInFunc(args[0]);
       if (func) {
-        func();
+        func(buf, args, client_sc);
         continue;
       }
 
