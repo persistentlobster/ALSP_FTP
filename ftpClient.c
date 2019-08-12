@@ -19,8 +19,10 @@
 #include <limits.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <errno.h>
 
 const char *FILE_OK = "received command";
+const int BAD_CMD = -1;
 
 int BUF_MAX = 4096;
 
@@ -75,13 +77,22 @@ parseOnToken(char *src, char *result[], char *token)
 }
 
 /**
+ * Sends BAD_CMD (error code: -1) to server so that server knows to abort
+ * NOTE: server must be expecting to receive an integer value
+ */
+void snd_bad_cmd(int sd) {
+  int bad_cmd = htonl(BAD_CMD);
+  write(sd, &bad_cmd, sizeof(bad_cmd));
+}
+
+/**
  * Reads the contents from a file and sends to server over socket
  * Returns number of bytes sent on success, or -1 on failure.
  */
 int sndfile(int sd, int fd, char *filename) {
   struct stat st;
   int bytes_recv, num_bytes = 0;
-  unsigned long filesize, sendsize;
+  int filesize, sendsize;
   char *buf[BUF_MAX];
 
   memset(buf, 0, BUF_MAX);
@@ -90,14 +101,14 @@ int sndfile(int sd, int fd, char *filename) {
   if (stat(filename, &st) < 0) {
     return -1;
   }
-  filesize = (unsigned long) st.st_size;
-  sendsize = (unsigned long) htonl(filesize);
+  filesize = st.st_size;
+  sendsize = htonl(filesize);
 
   // Send file size to server
   if (write(sd, (char *) &sendsize, sizeof(sendsize)) < 0) {
     return -1;
   }
-  printf("File size is %lu bytes\n", filesize);
+  printf("File size is %d bytes\n", filesize);
 
   // Read the file until there is nothing left to read
   while ((bytes_recv = read(fd, buf, BUF_MAX)) != 0) {
@@ -147,7 +158,8 @@ int recvfile(int sd, const char *filename) {
   }
 
   // 2. Read file contents from socket. NOTE: Do NOT use strlen as there could be a '\n' in buf
-  while ((bytes_recv = read(sd, buf, BUF_MAX)) != 0) {
+  while (total_read < filesize) {
+    bytes_recv = read(sd, buf, BUF_MAX);
     total_read += bytes_recv;
     if (bytes_recv < 0) {
       return -1;
@@ -164,8 +176,6 @@ int recvfile(int sd, const char *filename) {
       bufp += bytes_sent;
       num_bytes += bytes_sent;
     }
-    if (num_bytes == filesize)    // Done
-      break;
   }
   printf("Total bytes read: %d\n", total_read);
   printf("Total bytes written: %d\n", num_bytes);
@@ -238,16 +248,12 @@ int main(int argc, char **argv) {
     memset(buf, 0, BUF_MAX);
     printf("> ");
     fgets(buf, BUF_MAX, stdin);
-
-    // Need newline in original buf to use as EOL delimiter when sending to server
-    char bufCopy[strlen(buf) + 1];
-    strcpy(bufCopy, buf);
     
     // remove '\n' from copy for getBuiltInFunc check
-    bufCopy[strlen(bufCopy)-1] = '\0';
+    buf[strlen(buf)-1] = '\0';
 
     // Check if it's a builtin, and execute if it is
-    int (*func)() = getBuiltInFunc(bufCopy);
+    int (*func)() = getBuiltInFunc(buf);
     if (func) {
       func();
       continue;
@@ -258,33 +264,41 @@ int main(int argc, char **argv) {
     if (strncmp(buf, "put", 3) == 0) {
       printf("begin processing \"put\" command\n");
 
-      // Send command size to server
-      int size = htonl(strlen(buf));
-      write(sd, (char *) &size, sizeof(size));
-
-      // Send command to server
-      if ((bytes_sent = write(sd, buf, strlen(buf))) < 0)
-        perror_exit("error sending message");
-
-      // Chomp newline
-      buf[strlen(buf)-1] = '\0';
+      // Parse args and keep original copy to pass to server
+      char bufCopy[strlen(buf) + 1];
+      strcpy(bufCopy, buf);
 
       int arg_count = countArgsToken(buf, " ");
       if (arg_count != 2) {
         fprintf(stderr, "Error: expected 2 tokens but received %d\n", arg_count);
+        snd_bad_cmd(sd);
         continue;
       }
+
       char *args[arg_count + 1];
       parseOnToken(buf, args, " ");
       char *file = args[1];
 
+      // Check if file access is OK (file exists or insufficient permissions)
+      if (access(file, R_OK) < 0) {
+        perror("error accessing file");
+        snd_bad_cmd(sd);
+        continue;
+      } 
+
+      // Command is OK. Send command (and size) to server
+      int size = htonl(strlen(bufCopy));
+      write(sd, (char *) &size, sizeof(size));
+
+      if (write(sd, bufCopy, strlen(bufCopy)) < 0)
+        perror_exit("error sending message");
+      
       // Open the file for reading
       mode_t MODE = (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
       int fd;
-      if (access(file, R_OK) < 0) {
-        perror_exit("file access error");
-      }
+
       if ((fd = open(file, O_RDONLY, MODE)) < 0) {
+        snd_bad_cmd(sd);
         perror_exit("open error");
       }
       
@@ -319,8 +333,6 @@ int main(int argc, char **argv) {
       printf("response: %s\n", response);
 
       if (strcmp(response, FILE_OK) == 0) {
-        buf[strlen(buf)-1] = '\0';
-
         int arg_count = countArgsToken(buf, " ");
         if (arg_count != 2) {
           fprintf(stderr, "Error: expected 2 tokens but received %d\n", arg_count);
