@@ -7,168 +7,10 @@
  * listens over a connection with the client for incoming requests.
 */
 
-#include <stdio.h>
-#include <sys/types.h> 
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <time.h>
-#include <limits.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <errno.h>
+#include "ftpUtil.h"
 
 const char *FILE_OK = "received command";
-
-int BUF_MAX = 4096;
-
-/**
- * prints a message from the user followed by the msg associated
- * with errno and exits.
- */
-void perror_exit(char *msg) {
-    perror(msg);
-    exit(1);
-}
-
-/**
- * Returns the number of tokens separated by the delimiter
- */
-int countArgsToken(const char *buf, char * delim) {
-  int count = 0;
-  char * token;
-  char bufCopy[strlen(buf)+ 1];
-    
-  if (!buf)
-    return -1;
-
-  strcpy(bufCopy, buf);
-  token = strtok(bufCopy, delim); 
-  while (token != NULL) {
-    ++count;
-    token = strtok(NULL, delim);
-  }
-  return count;
-}
-
-/**
- * Genereal purpose function that parses src on the specified token
- * using strtok. Result[] is filled with an array of pointers to the
- * beginning of each null-terminated token.
- */
-void parseOnToken(char *src, char *result[], char *token) {
-  int i=0;
-  char *arg;
-
-  arg = strtok(src, token);
-  while (arg != NULL) {
-    result[i++] = arg;
-    arg = strtok(NULL, token);
-  }
-  result[i] = NULL;
-}
-
-/**
- * Reads the contents from a file and sends to server over socket
- * Returns number of bytes sent on success, or -1 on failure.
- */
-int sndfile(int sd, int fd, char *filename) {
-  struct stat st;
-  int bytes_recv, num_bytes = 0;
-  unsigned long filesize, sendsize;
-  char *buf[BUF_MAX];
-
-  memset(buf, 0, BUF_MAX);
-
-  // Get file size
-  if (stat(filename, &st) < 0) {
-    return -1;
-  }
-  filesize = (unsigned long) st.st_size;
-  sendsize = (unsigned long) htonl(filesize);
-
-  // Send file size to server
-  if (write(sd, (char *) &sendsize, sizeof(sendsize)) < 0) {
-    return -1;
-  }
-  printf("File size is %lu bytes\n", filesize);
-
-  // Read the file until there is nothing left to read
-  while ((bytes_recv = read(fd, buf, BUF_MAX)) != 0) {
-    if (bytes_recv < 0) {
-      return -1;
-    }
-
-    // Write file contents to socket
-    void *bufp = buf;
-    while (bytes_recv > 0) {
-      int bytes_sent = write(sd, bufp, bytes_recv);
-      if (bytes_sent <= 0) {
-          perror_exit("write error");
-      }
-      bytes_recv -= bytes_sent;
-      bufp += bytes_sent;
-      num_bytes += bytes_sent;
-    }
-  }
-  printf("Total bytes written: %d\n", num_bytes);
-  close(fd);
-  return num_bytes;
-}
-
-/**
- * Creates a file (filename) with contents read from socket (sd).
- * Returns number of bytes written on success, or -1 on failure.
- */
-int recvfile(int sd, const char *filename) {
-  mode_t MODE = (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);  // Set perms to 644
-  int fd_dst, bytes_recv, num_bytes = 0, total_read = 0;
-  char *buf[BUF_MAX];
-  unsigned long filesize;
-  
-  memset(buf, 0, BUF_MAX);
-
-  // Read size of file that will be sent over socket
-  if (read(sd, (char *) &filesize, sizeof(filesize)) < 0) {
-    perror_exit("read error");
-  }
-  filesize = (unsigned long) ntohl(filesize);
-  printf("About to receive %lu bytes\n", filesize);
-
-  // 1. Create/overwrite file
-  if ((fd_dst = open(filename, O_WRONLY | O_CREAT | O_TRUNC, MODE)) < 0) {
-    return -1;
-  }
-
-  // 2. Read file contents from socket. NOTE: Do NOT use strlen as there could be a '\n' in buf
-  while ((bytes_recv = read(sd, buf, BUF_MAX)) != 0) {
-    total_read += bytes_recv;
-    if (bytes_recv < 0) {
-      return -1;
-    }
-
-    // 3. Write contents to file until all bytes that have been read have been written
-    void *bufp = buf;
-    while (bytes_recv > 0) {
-      int bytes_sent = write(fd_dst, bufp, bytes_recv);
-      if (bytes_sent <= 0) {
-          perror_exit("write error");
-      }
-      bytes_recv -= bytes_sent;
-      bufp += bytes_sent;
-      num_bytes += bytes_sent;
-    }
-    if (num_bytes == filesize)    // Done
-      break;
-  }
-  printf("Total bytes read: %d\n", total_read);
-  printf("Total bytes written: %d\n", num_bytes);
-  close(fd_dst);
-  return num_bytes;
-}
+const int BAD_CMD = -1;
 
 /************************/
 /** BUILT-IN FUNCTIONS **/
@@ -185,8 +27,89 @@ int recvfile(int sd, const char *filename) {
 
 /** STEP 1: Define builtin function here **/
 
+int builtin_put(char * cmd, char ** args, int sd) {
+  printf("received \"put\" command from client\n");
+  printf("buf is: %s\n", cmd);
+  
+  // (2 for tokens, 1 for terminating null byte)
+  /**
+  char *args[3];
+  parseOnToken(buf, args, " ");
+  **/
+  char *file = args[1];
+
+  // Receive the file
+  if (recvfile(sd, file) < 0)
+    perror_exit("recvfile error");
+
+  return 0;
+}
+
+int builtin_get(char * cmd, char ** args, int sd) {
+
+  printf("received \"get\" command from client\n");
+
+  /**
+  int arg_count = countArgsToken(buf, " ");
+  if (arg_count != 2) {
+    fprintf(stderr, "Error: expected 2 tokens but received %d\n", arg_count);
+    continue;
+  }
+  char *args[arg_count + 1];
+  parseOnToken(buf, args, " ");
+  **/
+  char *file = args[1];
+
+  // Open the file for reading
+  mode_t MODE = (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+  int fd;
+
+  int err;
+  const char *response;
+  if ((err = access(file, R_OK)) < 0) {
+    switch (errno) {
+      case ENOENT:
+        response = "file does not exist";
+        break;
+      case EACCES:
+        response = "permission denied";
+        break;
+      default:
+        response = "an unknown error occured";
+        break;
+    }
+  } else {
+    response = FILE_OK;
+  }
+  unsigned long len = htonl(strlen(response));
+  if (write(sd, &len, sizeof(len)) < 0)
+    perror_exit("write error");
+
+  if (write(sd, response, strlen(response)) < 0)
+    perror_exit("write error");
+
+  if (err < 0)
+    return -1;
+    //continue;
+
+  if ((fd = open(file, O_RDONLY, MODE)) < 0) {
+    perror_exit("open error");
+  }
+
+  // Send the file to the server
+  if (sndfile(sd, fd, file) < 0) {
+    perror("sndfile error");
+  }
+  return 0;
+}
+
 /** STEP 2: Add builtin function here **/
-int (*getBuiltInFunc(char * cmd))(char **) {
+int (*getBuiltInFunc(char * cmd))(char *, char **, int) {
+  if (strcmp(cmd, "put") == 0)
+    return &builtin_put;
+  else if (strcmp(cmd, "get") == 0)
+    return &builtin_get;
+  else
     return NULL;
 }
 
@@ -194,18 +117,50 @@ int (*getBuiltInFunc(char * cmd))(char **) {
 /** END BUILT-IN FUNCTIONS **/
 /****************************/
 
+void run_loop(int client_sc) {
+    char buf[BUF_MAX];
+    while (1) {
+      // Read message from client
+      memset(buf, 0, BUF_MAX);
+      char * msg = NULL;
+      if (rec_msg(&msg, client_sc) == 0) {
+        printf("Client disconnected");
+        exit(0);
+      }
+      printf("Got %s from client\n", msg);
+      strcpy(buf, msg);
+      free(msg);
+
+      // Break message into command and args
+      char * args[countArgsToken(buf, " ")];
+      parseOnToken(buf, args, " ");
+
+      // Check if it's a builtin, and execute if it is
+      int (*func)() = getBuiltInFunc(args[0]);
+      if (func) {
+        func(buf, args, client_sc);
+        continue;
+      }
+
+      // Otherwise parse the input here
+      // Send a message back to client
+      memset(buf, 0, BUF_MAX);
+      strcpy(buf, "Got your message");
+      send_msg(buf, client_sc);
+    }
+    close(client_sc);
+}
+
 int main(int argc, char *argv[]) {
 	int sd, client_sc, port;
-	char buf[BUF_MAX];
 	struct sockaddr_in serv_addr;
-	time_t t;
-	struct tm tm;
 	
 	if (argc < 2) {
 		fprintf(stderr,"Usage: %s port\n", argv[0]);
 		exit(EXIT_FAILURE);
 	}
 
+  /** Set up a listener socket **/
 	sd = socket(AF_INET, SOCK_STREAM, 0);
 	
 	if (sd < 0) 
@@ -222,120 +177,22 @@ int main(int argc, char *argv[]) {
 		perror_exit("error binding to socket\n");
 	
 	listen(sd, 5);
+  printf("Sever started...\n");
 
-	while (1) {
-		if ((client_sc = accept(sd, (struct sockaddr *) NULL, NULL)) < 0) 
-			perror_exit("error accepting request");
-		
-    // Read command size from client
-    int size;
-    read(client_sc, &size, sizeof(size));
-    size = ntohl(size);
+  /** Wait for a client to connect **/
+  while(1) {
+    if ((client_sc = accept(sd, (struct sockaddr *) NULL, NULL)) < 0) 
+      perror_exit("error accepting request");
 
-    // Read command from client
-		memset(buf, 0, BUF_MAX);
-    // dup2(client_sc, 0);
-    // fgets(buf, BUF_MAX, stdin);
+    int pid = fork();
 
-    read(client_sc, buf, size);
-    printf("cmd size is: %d\n", size);
-
-    // Chomp newline
-    buf[strlen(buf)-1] = '\0';
-
-    /****************** BEGIN PROCESSING PUT CMD *******************/
-
-    if (strncmp(buf, "put", 3) == 0) {
-      printf("received \"put\" command from client\n");
-      printf("buf is: %s\n", buf);
-
-      int arg_count = countArgsToken(buf, " ");
-      if (arg_count != 2) {
-        fprintf(stderr, "Error: expected 2 tokens but received %d\n", arg_count);
-        continue;
-      }
-      char *args[arg_count + 1];
-      parseOnToken(buf, args, " ");
-      char *file = args[1];
-
-      // Receive the file
-      if (recvfile(client_sc, file) < 0)
-        perror_exit("recvfile error");
-
-      /****************** END PROCESSING PUT CMD *******************/
-    
-    } else if (strncmp(buf, "get", 3) == 0) {
-      printf("received \"get\" command from client\n");
-
-      int arg_count = countArgsToken(buf, " ");
-      if (arg_count != 2) {
-        fprintf(stderr, "Error: expected 2 tokens but received %d\n", arg_count);
-        continue;
-      }
-      char *args[arg_count + 1];
-      parseOnToken(buf, args, " ");
-      char *file = args[1];
-
-      // Open the file for reading
-      mode_t MODE = (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-      int fd;
-
-      int err;
-      char *response;
-      if ((err = access(file, R_OK)) < 0) {
-        switch (errno) {
-          case ENOENT:
-            response = "file does not exist";
-            break;
-          case EACCES:
-            response = "permission denied";
-            break;
-          default:
-            response = "an unknown error occured";
-            break;
-        }
-      } else {
-        response = FILE_OK;
-      }
-      int len = htonl(strlen(response));
-      if (write(client_sc, &len, sizeof(len)) < 0)
-        perror_exit("write error");
-      
-      if (write(client_sc, response, strlen(response)) < 0)
-        perror_exit("write error");
-      
-      if (err < 0)
-        continue;
-
-      if ((fd = open(file, O_RDONLY, MODE)) < 0) {
-        perror_exit("open error");
-      }
-      
-      // Send the file to the server
-      if (sndfile(client_sc, fd, file) < 0) {
-        perror("sndfile error");
-      }
+    if (pid == 0) { //Child
+      /** Now that a client has connected, enter in a loop of recieving and sending messages **/
+      close(sd);
+      run_loop(client_sc);
+    } else {  //If the parent, continue waiting for more connections to accept.
+      close(client_sc);
     }
-
-		t = time(NULL);
-		tm = *localtime(&t);
-
-		// printf("received message at %d:%d:%d : %s\n", 
-		// 			 tm.tm_hour, tm.tm_min, tm.tm_sec, buf);
-	
-		// response = "message received";	
-		// if ((num_bytes = write(client_sc, response, strlen(response))) < 0)
-		// 	perror_exit("error writing to socket");
-		
-    // Check if it's a builtin, and execute if it is
-    int (*func)() = getBuiltInFunc(buf);
-    if (func) {
-      func();
-      continue;
-    }
-
-		close(client_sc);
-	}
-
+  }
   exit(EXIT_SUCCESS);
 }
