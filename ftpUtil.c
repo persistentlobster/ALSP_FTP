@@ -65,8 +65,8 @@ int sndfile(int sd, int fd, char *filename) {
   if (stat(filename, &st) < 0) {
     return -1;
   }
-  filesize = (unsigned long) st.st_size;
-  sendsize = (unsigned long) htonl(filesize);
+  filesize = st.st_size;
+  sendsize = htonl(filesize);
 
   // Send file size to server
   if (write(sd, (char *) &sendsize, sizeof(sendsize)) < 0) {
@@ -122,7 +122,8 @@ int recvfile(int sd, const char *filename) {
   }
 
   // 2. Read file contents from socket. NOTE: Do NOT use strlen as there could be a '\n' in buf
-  while ((bytes_recv = read(sd, buf, BUF_MAX)) != 0) {
+  while (total_read < filesize) {
+    bytes_recv = read(sd, buf, BUF_MAX);
     total_read += bytes_recv;
     if (bytes_recv < 0) {
       return -1;
@@ -139,23 +140,11 @@ int recvfile(int sd, const char *filename) {
       bufp += bytes_sent;
       num_bytes += bytes_sent;
     }
-    if (num_bytes == filesize)    // Done
-      break;
   }
   printf("Total bytes read: %d\n", total_read);
   printf("Total bytes written: %d\n", num_bytes);
   close(fd_dst);
   return num_bytes;
-}
-
-void send_msg(char * msg, int sd) {
-    // Get size of message
-    unsigned long size = (unsigned long)strlen(msg);
-    unsigned long send_size = (unsigned long) htonl(size);
-    // Send the size first
-    send(sd, &send_size, sizeof(send_size), 0);
-    // then the command
-    send(sd, msg, strlen(msg), 0);
 }
 
 // Read message and return size of message
@@ -173,3 +162,12 @@ int rec_msg(char ** msg, int sd) {
     return rec_size;
 }
 
+void send_msg(char * msg, int sd) {
+    // Get size of message
+    unsigned long size = (unsigned long)strlen(msg);
+    unsigned long send_size = (unsigned long) htonl(size);
+    // Send the size first
+    send(sd, &send_size, sizeof(send_size), 0);
+    // then the command
+    send(sd, msg, strlen(msg), 0);
+}
