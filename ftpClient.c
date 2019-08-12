@@ -22,6 +22,39 @@ void snd_bad_cmd(int sd) {
   write(sd, &bad_cmd, sizeof(bad_cmd));
 }
 
+/**
+ * Resolves a server IPv4 address from the hostname.
+ * If the address is resolved, it is copied into ip parameter
+ * and the function returns 1. Otherwise, it returns 0.
+ */
+int resolve_host(char *hostname, char *ip) {
+  struct addrinfo hint, *res, *cur;
+  struct sockaddr_in *sin;
+  char buf[INET_ADDRSTRLEN];
+  const char *addr = NULL;
+  int result;
+
+  memset(&hint, 0, sizeof(hint));
+  hint.ai_family = AF_INET;         // IPv4
+  hint.ai_socktype = SOCK_STREAM;
+
+  if ((result = getaddrinfo(hostname, NULL, &hint, &res)) != 0) {
+    fprintf(stderr, "error: %s", gai_strerror(result));
+    return 0;
+  }
+  
+  for (cur = res; cur != NULL; cur = cur->ai_next) {
+    sin = (struct sockaddr_in *)cur->ai_addr;
+    addr = inet_ntop(AF_INET, &sin->sin_addr, buf, INET_ADDRSTRLEN);
+    if (addr) {
+      strcpy(ip, addr);
+      return 1;  
+    }    
+  } 
+  freeaddrinfo(res);
+  return 0;
+}
+
 /************************/
 /** BUILT-IN FUNCTIONS **/
 /************************/
@@ -165,8 +198,9 @@ int (*getBuiltInFunc(char * cmd))(char *, char **, int) {
 int main(int argc, char **argv) {
   struct sockaddr_in srv_addr;
   char buf[BUF_MAX], bufCopy[BUF_MAX];
-  int port, sd;
+  char addr[INET6_ADDRSTRLEN];
   char *host;
+  int port, sd;
 
   if (argc != 3) {
     fprintf(stderr, "Usage: %s hostname port", argv[0]);
@@ -178,7 +212,11 @@ int main(int argc, char **argv) {
   port = strtol(argv[2], NULL, 10);
   memset(&srv_addr, 0, sizeof(srv_addr)); 
   srv_addr.sin_family = AF_INET;              // IPv4
-  srv_addr.sin_addr.s_addr = inet_addr(host); // resolve hostname
+  
+  if (!resolve_host(host, addr))
+    exit(EXIT_FAILURE);
+
+  srv_addr.sin_addr.s_addr = inet_addr(addr); // resolve hostname
   srv_addr.sin_port = htons(port);            // convert int to network formatted uint16_t
 
   if ((sd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
@@ -187,6 +225,7 @@ int main(int argc, char **argv) {
   if (connect(sd, (struct sockaddr *)&srv_addr, sizeof(srv_addr)) < 0)
     perror_exit("error connecting to socket");
 
+  printf("Connected to server at address: %s\n", addr);
 
   // After obtaining a socket to the server: get cmds, send to server, loop
   while (1) {
