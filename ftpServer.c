@@ -11,8 +11,6 @@
 
 const char *FILE_OK = "received command";
 
-int BUF_MAX = 4096;
-
 /************************/
 /** BUILT-IN FUNCTIONS **/
 /************************/
@@ -28,8 +26,92 @@ int BUF_MAX = 4096;
 
 /** STEP 1: Define builtin function here **/
 
+int builtin_put(char * cmd, char ** args, int sd) {
+  printf("received \"put\" command from client\n");
+  printf("buf is: %s\n", cmd);
+
+/**
+  int arg_count = countArgsToken(buf, " ");
+  if (arg_count != 2) {
+    fprintf(stderr, "Error: expected 2 tokens but received %d\n", arg_count);
+    continue;
+  }
+  char *args[arg_count + 1];
+  parseOnToken(buf, args, " ");
+  **/
+  char *file = args[1];
+
+  // Receive the file
+  if (recvfile(sd, file) < 0)
+    perror_exit("recvfile error");
+
+  return 0;
+}
+
+int builtin_get(char * cmd, char ** args, int sd) {
+  printf("received \"get\" command from client\n");
+
+  /**
+  int arg_count = countArgsToken(buf, " ");
+  if (arg_count != 2) {
+    fprintf(stderr, "Error: expected 2 tokens but received %d\n", arg_count);
+    continue;
+  }
+  char *args[arg_count + 1];
+  parseOnToken(buf, args, " ");
+  **/
+  char *file = args[1];
+
+  // Open the file for reading
+  mode_t MODE = (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+  int fd;
+
+  int err;
+  char *response;
+  if ((err = access(file, R_OK)) < 0) {
+    switch (errno) {
+      case ENOENT:
+        response = "file does not exist";
+        break;
+      case EACCES:
+        response = "permission denied";
+        break;
+      default:
+        response = "an unknown error occured";
+        break;
+    }
+  } else {
+    response = FILE_OK;
+  }
+  int len = htonl(strlen(response));
+  if (write(sd, &len, sizeof(len)) < 0)
+    perror_exit("write error");
+  
+  if (write(sd, response, strlen(response)) < 0)
+    perror_exit("write error");
+  
+  if (err < 0)
+    return -1;
+
+  if ((fd = open(file, O_RDONLY, MODE)) < 0) {
+    perror_exit("open error");
+  }
+  
+  // Send the file to the server
+  if (sndfile(sd, fd, file) < 0) {
+    perror("sndfile error");
+  }
+
+  return 0;
+}
+
 /** STEP 2: Add builtin function here **/
-int (*getBuiltInFunc(char * cmd))(char **) {
+int (*getBuiltInFunc(char * cmd))(char *, char **, int) {
+  if (strcmp(cmd, "put") == 0)
+    return &builtin_put;
+  else if (strcmp(cmd, "get") == 0)
+    return &builtin_get;
+  else
     return NULL;
 }
 
@@ -99,80 +181,6 @@ int main(int argc, char *argv[]) {
 	listen(sd, 5);
   printf("Sever started...\n");
 
-
-    /****************** BEGIN PROCESSING PUT CMD *******************/
-/**
-    if (strncmp(buf, "put", 3) == 0) {
-      printf("received \"put\" command from client\n");
-      printf("buf is: %s\n", buf);
-
-      int arg_count = countArgsToken(buf, " ");
-      if (arg_count != 2) {
-        fprintf(stderr, "Error: expected 2 tokens but received %d\n", arg_count);
-        continue;
-      }
-      char *args[arg_count + 1];
-      parseOnToken(buf, args, " ");
-      char *file = args[1];
-
-      // Receive the file
-      if (recvfile(client_sc, file) < 0)
-        perror_exit("recvfile error");
-**/
-      /****************** END PROCESSING PUT CMD *******************/
-  /**  
-    } else if (strncmp(buf, "get", 3) == 0) {
-      printf("received \"get\" command from client\n");
-
-      int arg_count = countArgsToken(buf, " ");
-      if (arg_count != 2) {
-        fprintf(stderr, "Error: expected 2 tokens but received %d\n", arg_count);
-        continue;
-      }
-      char *args[arg_count + 1];
-      parseOnToken(buf, args, " ");
-      char *file = args[1];
-
-      // Open the file for reading
-      mode_t MODE = (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-      int fd;
-
-      int err;
-      char *response;
-      if ((err = access(file, R_OK)) < 0) {
-        switch (errno) {
-          case ENOENT:
-            response = "file does not exist";
-            break;
-          case EACCES:
-            response = "permission denied";
-            break;
-          default:
-            response = "an unknown error occured";
-            break;
-        }
-      } else {
-        response = FILE_OK;
-      }
-      int len = htonl(strlen(response));
-      if (write(client_sc, &len, sizeof(len)) < 0)
-        perror_exit("write error");
-      
-      if (write(client_sc, response, strlen(response)) < 0)
-        perror_exit("write error");
-      
-      if (err < 0)
-        continue;
-
-      if ((fd = open(file, O_RDONLY, MODE)) < 0) {
-        perror_exit("open error");
-      }
-      
-      // Send the file to the server
-      if (sndfile(client_sc, fd, file) < 0) {
-        perror("sndfile error");
-      }
-      **/
   /** Wait for a client to connect **/
   while(1) {
     if ((client_sc = accept(sd, (struct sockaddr *) NULL, NULL)) < 0) 
