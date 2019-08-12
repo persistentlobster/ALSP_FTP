@@ -116,12 +116,20 @@ int builtin_get(char * cmd, char ** args, int sd) {
  */
  /**
 int recvfile(int sd, const char *filename, int filesize) {
+int recvfile(int sd, const char *filename) {
   mode_t MODE = (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);  // Set perms to 644
   int fd_dst, bytes_recv, num_bytes = 0, total_read = 0;
   char *buf[BUF_MAX];
+  unsigned long filesize;
  
   memset(buf, 0, BUF_MAX);
-  printf("About to receive %d bytes\n", filesize);
+
+  // Read size of file that will be sent over socket
+  if (read(sd, (char *) &filesize, sizeof(filesize)) < 0) {
+    perror_exit("read error");
+  }
+  filesize = (unsigned long) ntohl(filesize);
+  printf("About to receive %lu bytes\n", filesize);
 
   // 1. Create/overwrite file
   if ((fd_dst = open(filename, O_WRONLY | O_CREAT | O_TRUNC, MODE)) < 0) {
@@ -272,6 +280,9 @@ int main(int argc, char *argv[]) {
         perror_exit("read error");
       
       len = ntohl(len);
+    if (strncmp(buf, "put", 3) == 0) {
+      printf("received \"put\" command from client\n");
+      printf("buf is: %s\n", buf);
       
       // (2 for tokens, 1 for terminating null byte)
       char *args[3];
@@ -279,7 +290,7 @@ int main(int argc, char *argv[]) {
       char *file = args[1];
 
       // Receive the file
-      if (recvfile(client_sc, file, len) < 0)
+      if (recvfile(client_sc, file) < 0)
         perror_exit("recvfile error");
 **/
       /****************** END PROCESSING PUT CMD *******************/
