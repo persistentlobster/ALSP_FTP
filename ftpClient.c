@@ -18,7 +18,7 @@ const int BAD_CMD = -1;
  * NOTE: server must be expecting to receive an integer value
  */
 void snd_bad_cmd(int sd) {
-  int bad_cmd = htonl(BAD_CMD);
+  unsigned long bad_cmd = htonl(BAD_CMD);
   write(sd, &bad_cmd, sizeof(bad_cmd));
 }
 
@@ -71,7 +71,7 @@ int builtin_put(char * cmd, char ** args, int sd) {
   } 
 
   // Command is OK. Send command (and size) to server
-  int size = htonl(strlen(cmd));
+  unsigned long size = htonl(strlen(cmd));
   write(sd, (char *) &size, sizeof(size));
 
   if (write(sd, cmd, strlen(cmd)) < 0)
@@ -100,7 +100,7 @@ int builtin_get(char * cmd, char ** args, int sd) {
   printf("begin processing \"put\" command\n");
 
   // Send command size to server
-  int size = htonl(strlen(cmd));
+  unsigned long size = htonl(strlen(cmd));
   write(sd, (char *) &size, sizeof(size));
 
   // Send command to server
@@ -108,7 +108,7 @@ int builtin_get(char * cmd, char ** args, int sd) {
     perror_exit("error sending message");
 
   // Receive response from server
-  int len;
+  unsigned long len;
   if ((bytes_recv = read(sd, &len, sizeof(len))) < 0)
     perror_exit("read error");
   

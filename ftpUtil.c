@@ -56,7 +56,7 @@ void parseOnToken(char *src, char *result[], char *token) {
 int sndfile(int sd, int fd, char *filename) {
   struct stat st;
   int bytes_recv, num_bytes = 0;
-  int filesize, sendsize;
+  unsigned long filesize, sendsize;
   char *buf[BUF_MAX];
 
   memset(buf, 0, BUF_MAX);
@@ -72,7 +72,7 @@ int sndfile(int sd, int fd, char *filename) {
   if (write(sd, (char *) &sendsize, sizeof(sendsize)) < 0) {
     return -1;
   }
-  printf("File size is %d bytes\n", filesize);
+  printf("File size is %lu bytes\n", filesize);
 
   // Read the file until there is nothing left to read
   while ((bytes_recv = read(fd, buf, BUF_MAX)) != 0) {

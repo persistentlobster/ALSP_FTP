@@ -81,7 +81,7 @@ int builtin_get(char * cmd, char ** args, int sd) {
   } else {
     response = FILE_OK;
   }
-  int len = htonl(strlen(response));
+  unsigned long len = htonl(strlen(response));
   if (write(sd, &len, sizeof(len)) < 0)
     perror_exit("write error");
 
