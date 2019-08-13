@@ -155,8 +155,8 @@ int rec_msg(char ** msg, int sd) {
       return 0;
     unsigned long rec_size = ntohl(size);
     // Malloc memory to hold message
-    *msg = malloc(rec_size);
-    memset(*msg, 0, rec_size);
+    *msg = malloc(rec_size+1);
+    memset(*msg, 0, (rec_size+1));
     // Then get the message
     recv(sd, *msg, rec_size, 0);
     return rec_size;
