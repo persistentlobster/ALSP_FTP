@@ -11,6 +11,55 @@
 
 const char *FILE_OK = "received command";
 const int BAD_CMD = -1;
+int bytes_recv;
+char c;
+
+/**
+ * Executes shell commands on the server and sends
+ * output back to client.
+ */
+int ls_cmd(const char *cmd, int sd) {
+  FILE *fp;
+  char buf[BUF_MAX];
+
+  memset(&buf, 0, sizeof(buf));
+
+  fp = popen(cmd, "r");
+  if (!fp)
+    return 0;
+
+  int ch;
+  while ((ch = fgetc(fp)) != EOF) {
+    strcat(buf, (char*) &ch);
+  } 
+  
+  // Check that it was EOF and not a read error
+  if (!feof(fp)) {
+    perror("error reading ls output");
+    return 0;
+  }
+
+  // Remove trailing newline
+  char *cp;
+  if ((cp = strrchr(buf, '\n')) != NULL) {
+    *cp = ' ';
+  }
+
+  pclose(fp);
+  send_msg(buf, sd);
+  return 1;
+}
+
+/**
+ * Checks if shell command is supported by server
+ */
+int is_supported_command(char *cmd) {
+  int supported = 0;
+  if (strcmp(cmd, "ls") == 0)
+    supported = 1;
+  
+  return supported;
+}
 
 /************************/
 /** BUILT-IN FUNCTIONS **/
@@ -146,6 +195,11 @@ void run_loop(int client_sc) {
       strcpy(buf, msg);
       free(msg);
 
+      // Save copy for commands that require whole command line
+      char bufCopy[BUF_MAX];
+      memset(bufCopy, 0, BUF_MAX);
+      strcpy(bufCopy, buf);
+
       // Break message into command and args
       char * args[countArgsToken(buf, " ")];
       parseOnToken(buf, args, " ");
@@ -159,9 +213,14 @@ void run_loop(int client_sc) {
 
       // Otherwise parse the input here
       // Send a message back to client
-      memset(buf, 0, BUF_MAX);
-      strcpy(buf, "Got your message");
-      send_msg(buf, client_sc);
+      if (is_supported_command(buf)) {
+        ls_cmd(bufCopy, client_sc);
+
+      } else {
+        memset(buf, 0, BUF_MAX);
+        strcpy(buf, "Got your message");
+        send_msg(buf, client_sc);
+      }
     }
     close(client_sc);
 }
