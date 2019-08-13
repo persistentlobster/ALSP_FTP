@@ -108,6 +108,21 @@ int builtin_lls(char * cmd, char ** args, int sd) {
   return 0;
 }
 
+// Change the current working directory
+// Then print the directory out to the user
+int builtin_lcd(char * cmd, char ** args, int sd) {
+  if (args[1] == NULL) {
+    fprintf(stderr, "No directory provided\n");
+    return -1;
+  }
+  if (chdir(args[1]) < 0) {
+    perror(args[1]);
+    return -1;
+  }
+
+  return builtin_lpwd(NULL, NULL, 0);
+}
+
 int builtin_put(char * cmd, char ** args, int sd) {
   printf("begin processing \"put\" command\n");
 
@@ -220,6 +235,8 @@ int (*getBuiltInFunc(char * cmd))(char *, char **, int) {
     return &builtin_lpwd;
   else if (strncmp(cmd, "lls", 3) == 0)
     return &builtin_lls;
+  else if (strcmp(cmd, "lcd") == 0)
+    return &builtin_lcd;
   else
     return NULL;
 }
