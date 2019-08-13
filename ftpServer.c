@@ -27,6 +27,19 @@ const int BAD_CMD = -1;
 
 /** STEP 1: Define builtin function here **/
 
+// Sends the current working directory to socket sd
+int builtin_pwd(char * cmd, char ** args, int sd) {
+  char buf[PATH_MAX];
+  int ret = 0;
+  if (getcwd(buf,PATH_MAX) == NULL) {
+    perror("Unable to get current working directory");
+    strcpy(buf, "Server unable to get current working directory\n");
+    ret = -1;
+  }
+  send_msg(buf, sd);
+  return ret;
+}
+
 int builtin_put(char * cmd, char ** args, int sd) {
   printf("received \"put\" command from client\n");
   printf("buf is: %s\n", cmd);
@@ -109,6 +122,8 @@ int (*getBuiltInFunc(char * cmd))(char *, char **, int) {
     return &builtin_put;
   else if (strcmp(cmd, "get") == 0)
     return &builtin_get;
+  else if (strcmp(cmd, "pwd") == 0)
+    return &builtin_pwd;
   else
     return NULL;
 }
