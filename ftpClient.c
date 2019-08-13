@@ -71,6 +71,17 @@ int resolve_host(char *hostname, char *ip) {
 
 /** STEP 1: Define builtin function here **/
 
+// Run cmd in the shell
+int builtin_escape(char * cmd, char ** args, int sd) {
+  if (system(NULL) == 0) {
+    fprintf(stderr, "No shell is available...\n");
+    return -1;
+  }
+
+  system(++cmd);
+  return 0;
+}
+
 // Exits the shell.
 int builtin_exit(char * cmd, char ** args, int sd) {
   printf("Exiting...\n");
@@ -225,7 +236,9 @@ int builtin_get(char * cmd, char ** args, int sd) {
 
 /** STEP 2: Add builtin function here **/
 int (*getBuiltInFunc(char * cmd))(char *, char **, int) {
-  if (strcmp(cmd, "exit") == 0)
+  if (cmd[0] == '!')
+    return &builtin_escape;
+  else if (strcmp(cmd, "exit") == 0)
     return &builtin_exit;
   else if (strcmp(cmd, "put") == 0)
     return &builtin_put;
