@@ -9,6 +9,7 @@
 */
 
 #include "ftpUtil.h"
+#include <sys/wait.h>
 
 const char *FILE_OK = "received command";
 const int BAD_CMD = -1;
@@ -85,6 +86,25 @@ int builtin_lpwd(char * cmd, char ** args, int sd) {
   }
 
   printf("%s\n", buf);
+  return 0;
+}
+
+// Execs the client ls command.
+// NOTE: Much of this code block was provided by Professor Mark Morrissey
+// TODO: wildcard expansion
+int builtin_lls(char * cmd, char ** args, int sd) {
+  int retval;
+
+  // Chomp leading "l"
+  cmd++;
+
+  if ((retval = system(cmd)) == -1) {
+    perror("system() error");
+    return -1;
+  } else if (retval == 127) {
+    fprintf(stderr, "shell failed to execute command\n");
+    return -1;
+  }
   return 0;
 }
 
@@ -198,6 +218,8 @@ int (*getBuiltInFunc(char * cmd))(char *, char **, int) {
     return &builtin_get;
   else if (strcmp(cmd, "lpwd") == 0)
     return &builtin_lpwd;
+  else if (strncmp(cmd, "lls", 3) == 0)
+    return &builtin_lls;
   else
     return NULL;
 }
