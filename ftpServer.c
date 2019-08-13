@@ -89,6 +89,30 @@ int builtin_pwd(char * cmd, char ** args, int sd) {
   return ret;
 }
 
+// Change the current working directory on the server.
+// Sends back the new current working dir to client
+int builtin_cd(char * cmd, char ** args, int sd) {
+  char buf[BUF_MAX];
+  int ret = 0;
+
+  memset(buf, 0, BUF_MAX);
+  if (args[1] == NULL) {
+    fprintf(stderr, "No directory provided\n");
+    strcpy(buf, "No directory provided\n");
+    ret = -1;
+  } else {
+    if (chdir(args[1]) < 0) {
+      perror(args[1]);
+      strcpy(buf, strerror(errno));
+      ret = -1;
+    } else {
+      return builtin_pwd(NULL, NULL, sd);
+    }
+  }
+  send_msg(buf, sd);
+  return ret;
+}
+
 int builtin_put(char * cmd, char ** args, int sd) {
   printf("received \"put\" command from client\n");
   printf("buf is: %s\n", cmd);
@@ -173,6 +197,8 @@ int (*getBuiltInFunc(char * cmd))(char *, char **, int) {
     return &builtin_get;
   else if (strcmp(cmd, "pwd") == 0)
     return &builtin_pwd;
+  else if (strcmp(cmd, "cd") == 0)
+    return &builtin_cd;
   else
     return NULL;
 }
