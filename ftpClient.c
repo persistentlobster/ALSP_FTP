@@ -76,6 +76,18 @@ int builtin_exit(char * cmd, char ** args, int sd) {
   exit(EXIT_SUCCESS);
 }
 
+// Prints out the current working directory
+int builtin_lpwd(char * cmd, char ** args, int sd) {
+  char buf[PATH_MAX];
+  if (getcwd(buf,PATH_MAX) == NULL) {
+    perror("Unable to get current working directory");
+    return -1;
+  }
+
+  printf("%s\n", buf);
+  return 0;
+}
+
 int builtin_put(char * cmd, char ** args, int sd) {
   printf("begin processing \"put\" command\n");
 
@@ -184,6 +196,8 @@ int (*getBuiltInFunc(char * cmd))(char *, char **, int) {
     return &builtin_put;
   else if (strcmp(cmd, "get") == 0)
     return &builtin_get;
+  else if (strcmp(cmd, "lpwd") == 0)
+    return &builtin_lpwd;
   else
     return NULL;
 }
