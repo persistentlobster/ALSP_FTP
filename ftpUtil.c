@@ -50,6 +50,14 @@ void parseOnToken(char *src, char *result[], char *token) {
 }
 
 /**
+ * Wrapper around glob() to expand '~', wildcards, etc
+ * Remember to call globfree() on holder
+ */
+int expandPath(char * path, glob_t *holder) {
+  return glob(path, GLOB_TILDE, NULL, holder);
+};
+
+/**
  * Reads the contents from a file and sends to server over socket
  * Returns number of bytes sent on success, or -1 on failure.
  */

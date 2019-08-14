@@ -126,10 +126,14 @@ int builtin_lcd(char * cmd, char ** args, int sd) {
     fprintf(stderr, "No directory provided\n");
     return -1;
   }
-  if (chdir(args[1]) < 0) {
-    perror(args[1]);
+  glob_t gl;
+  expandPath(args[1], &gl);
+  if (chdir(gl.gl_pathv[0]) < 0) {
+    perror(gl.gl_pathv[0]);
+    globfree(&gl);
     return -1;
   }
+  globfree(&gl);
 
   return builtin_lpwd(NULL, NULL, 0);
 }
