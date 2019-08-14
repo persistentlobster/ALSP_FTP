@@ -131,6 +131,8 @@ int builtin_put(char * cmd, char ** args, int sd) {
   // Receive the file
   if (recvfile(sd, file) < 0)
     perror_exit("recvfile error");
+  else 
+    send_msg(cmd, sd);
 
   return 0;
 }
@@ -237,7 +239,7 @@ void run_loop(int client_sc) {
       // Check if it's a builtin, and execute if it is
       int (*func)() = getBuiltInFunc(args[0]);
       if (func) {
-        func(buf, args, client_sc);
+        func(bufCopy, args, client_sc);
         continue;
       }
 

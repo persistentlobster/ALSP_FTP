@@ -156,36 +156,53 @@ int builtin_put(char * cmd, char ** args, int sd) {
   char *args[arg_count + 1];
   parseOnToken(buf, args, " ");
   **/
-  char *file = args[1];
 
-  // Check if file access is OK (file exists or insufficient permissions)
-  if (access(file, R_OK) < 0) {
-    perror("error accessing file");
-    snd_bad_cmd(sd);
-    return -1;
-  } 
+  glob_t gl;
+  expandPath(args[1], &gl);
+  char full_cmd[BUF_MAX];
+  char * msg;
+  for (int i = 0; i < gl.gl_pathc; i++) {
+    char *file = gl.gl_pathv[i];
 
-  // Command is OK. Send command (and size) to server
-  unsigned long size = htonl(strlen(cmd));
-  write(sd, (char *) &size, sizeof(size));
+    // Check if file access is OK (file exists or insufficient permissions)
+    if (access(file, R_OK) < 0) {
+      perror("error accessing file");
+      snd_bad_cmd(sd);
+      //return -1;
+      continue;
+    } 
 
-  if (write(sd, cmd, strlen(cmd)) < 0)
-    perror_exit("error sending message");
-  
-  // Open the file for reading
-  mode_t MODE = (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-  int fd;
+    // Command is OK. Send command (and size) to server
+    memset(full_cmd, 0, BUF_MAX);
+    strcpy(full_cmd, "put ");
+    strcat(full_cmd, basename(gl.gl_pathv[i]));
+    unsigned long size = htonl(strlen(full_cmd));
+    write(sd, (char *) &size, sizeof(size));
 
-  if ((fd = open(file, O_RDONLY, MODE)) < 0) {
-    snd_bad_cmd(sd);
-    perror_exit("open error");
+    if (write(sd, full_cmd, strlen(full_cmd)) < 0)
+      perror("error sending message");
+      //perror_exit("error sending message");
+    
+    // Open the file for reading
+    mode_t MODE = (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+    int fd;
+
+    if ((fd = open(file, O_RDONLY, MODE)) < 0) {
+      perror("Open error");
+      snd_bad_cmd(sd);
+      //perror_exit("open error");
+    }
+    
+    // Send the file to the server
+    if (sndfile(sd, fd, gl.gl_pathv[i]) < 0) {
+      perror("sndfile error");
+    }
+    
+    rec_msg(&msg, sd);
+    printf("%s\n", msg);
+    free(msg);
   }
-  
-  // Send the file to the server
-  if (sndfile(sd, fd, file) < 0) {
-    perror("sndfile error");
-  }
-
+  globfree(&gl);
   return 0;
 }
 
