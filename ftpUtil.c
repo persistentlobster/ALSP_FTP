@@ -162,6 +162,7 @@ int rec_msg(char ** msg, int sd) {
     if (recv(sd, &size, sizeof(size), 0) == 0)
       return 0;
     unsigned long rec_size = ntohl(size);
+    printf("About to recieve: %lu\n", rec_size);
     // Malloc memory to hold message
     *msg = malloc(rec_size+1);
     memset(*msg, 0, (rec_size+1));

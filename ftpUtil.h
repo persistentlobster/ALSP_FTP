@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <glob.h>
+#include <libgen.h>
 
 extern int const BUF_MAX;
 
