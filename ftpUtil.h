@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <glob.h>
 #include <libgen.h>
+#include <time.h>
 
 extern int const BUF_MAX;
 

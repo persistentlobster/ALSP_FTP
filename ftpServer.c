@@ -12,6 +12,26 @@
 const char *FILE_OK = "received command";
 const int BAD_CMD = -1;
 
+const int L_INFO = 1;
+const int L_ERR  = 2;
+const int L_PERR = 3;
+
+void logger(char * msg, int loglevel) {
+  int errnoCopy = errno;
+  time_t t = time(NULL);
+  char timestamp[50];
+  strftime(timestamp, 50, "[%D %T]", localtime(&t));
+ 
+  if (loglevel == L_INFO)
+    fprintf(stdout, "%s %s\n", timestamp, msg);
+  else if (loglevel == L_ERR)
+    fprintf(stderr, "%s %s\n", timestamp, msg);
+  else if (loglevel == L_PERR)
+    fprintf(stderr, "%s %s : %s\n", timestamp, msg, strerror(errnoCopy));
+  else
+    fprintf(stdout, "%s %s\n", timestamp, msg);
+}
+
 /************************/
 /** BUILT-IN FUNCTIONS **/
 /************************/
@@ -32,7 +52,8 @@ int builtin_pwd(char * cmd, char ** args, int sd) {
   char buf[PATH_MAX];
   int ret = 0;
   if (getcwd(buf,PATH_MAX) == NULL) {
-    perror("Unable to get current working directory");
+    //perror("Unable to get current working directory");
+    logger("Unable to get current working directory", L_PERR);
     strcpy(buf, "Server unable to get current working directory\n");
     ret = -1;
   }
@@ -48,7 +69,8 @@ int builtin_cd(char * cmd, char ** args, int sd) {
 
   memset(buf, 0, BUF_MAX);
   if (args[1] == NULL) {
-    fprintf(stderr, "No directory provided\n");
+    //fprintf(stderr, "No directory provided\n");
+    logger("No directory provided", L_ERR);
     strcpy(buf, "No directory provided\n");
     ret = -1;
   } else {
@@ -87,7 +109,8 @@ int builtin_ls(char *cmd, char ** args, int sd) {
   
   // Check that it was EOF and not a read error
   if (!feof(fp)) {
-    perror("error reading ls output");
+    //perror("error reading ls output");
+    logger("error reading ls output", L_PERR);
     return -1;
   }
 
@@ -103,14 +126,9 @@ int builtin_ls(char *cmd, char ** args, int sd) {
 }
 
 int builtin_put(char * cmd, char ** args, int sd) {
-  printf("received \"put\" command from client\n");
-  printf("buf is: %s\n", cmd);
+  //printf("received \"put\" command from client\n");
+  //printf("buf is: %s\n", cmd);
   
-  // (2 for tokens, 1 for terminating null byte)
-  /**
-  char *args[3];
-  parseOnToken(buf, args, " ");
-  **/
   char *file = args[1];
 
   // Receive the file
@@ -124,11 +142,11 @@ int builtin_put(char * cmd, char ** args, int sd) {
 
 int builtin_get(char * cmd, char ** args, int sd) {
   char * msg;
-  printf("received \"get\" command from client\n");
+  //printf("received \"get\" command from client\n");
 
   glob_t gl;
   expandPath(args[1], &gl);
-  printf("%s has %zu options\n", cmd, gl.gl_pathc);
+  //printf("%s has %zu options\n", cmd, gl.gl_pathc);
   char filename[BUF_MAX];
   for (int i = 0; i < gl.gl_pathc; i++) {
     char *file = gl.gl_pathv[i];
@@ -176,10 +194,12 @@ int builtin_get(char * cmd, char ** args, int sd) {
 
     // Send the file to the server
     if (sndfile(sd, fd, file) < 0) {
-      perror("sndfile error");
+      //perror("sndfile error");
+      logger("sndfile error", L_PERR);
     } else {
       rec_msg(&msg, sd);
-      printf("%s\n", msg);
+      //printf("%s\n", msg);
+      logger(msg, L_INFO);
       free(msg);
 
       if ((i+1) < gl.gl_pathc)
@@ -218,10 +238,12 @@ void run_loop(int client_sc) {
       memset(buf, 0, BUF_MAX);
       char * msg = NULL;
       if (rec_msg(&msg, client_sc) == 0) {
-        printf("Client disconnected");
+        //printf("Client disconnected");
+        logger("Client disconnected", L_INFO);
         exit(0);
       }
-      printf("Got %s from client\n", msg);
+      //printf("Got %s from client\n", msg);
+      logger(msg, L_INFO);
       strcpy(buf, msg);
       free(msg);
 
@@ -243,7 +265,9 @@ void run_loop(int client_sc) {
 
       // If its not a builtin, its not a supported command
       // Send a message back to client
-      printf("%s is not a supported command\n", bufCopy);
+      //printf("%s is not a supported command\n", bufCopy);
+      strcat(bufCopy, " not supported");
+      logger(bufCopy, L_INFO);
       memset(buf, 0, BUF_MAX);
       strcpy(buf, "Invalid Command");
       send_msg(buf, client_sc);
@@ -277,13 +301,15 @@ int main(int argc, char *argv[]) {
 		perror_exit("error binding to socket\n");
 	
 	listen(sd, 5);
-  printf("Sever started...\n");
+  //printf("Sever started...\n");
+  logger("Server started...", L_INFO);
 
   /** Wait for a client to connect **/
   while(1) {
     if ((client_sc = accept(sd, (struct sockaddr *) NULL, NULL)) < 0) 
       perror_exit("error accepting request");
 
+    logger("Client connected", L_INFO);
     int pid = fork();
 
     if (pid == 0) { //Child
