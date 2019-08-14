@@ -101,11 +101,15 @@ int builtin_cd(char * cmd, char ** args, int sd) {
     strcpy(buf, "No directory provided\n");
     ret = -1;
   } else {
-    if (chdir(args[1]) < 0) {
-      perror(args[1]);
+    glob_t gl;
+    expandPath(args[1], &gl);
+    if (chdir(gl.gl_pathv[0]) < 0) {
+      perror(gl.gl_pathv[0]);
       strcpy(buf, strerror(errno));
       ret = -1;
+      globfree(&gl);
     } else {
+      globfree(&gl);
       return builtin_pwd(NULL, NULL, sd);
     }
   }
