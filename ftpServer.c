@@ -138,7 +138,7 @@ int builtin_put(char * cmd, char ** args, int sd) {
 }
 
 int builtin_get(char * cmd, char ** args, int sd) {
-
+  char * msg;
   printf("received \"get\" command from client\n");
 
   /**
@@ -150,48 +150,68 @@ int builtin_get(char * cmd, char ** args, int sd) {
   char *args[arg_count + 1];
   parseOnToken(buf, args, " ");
   **/
-  char *file = args[1];
+  glob_t gl;
+  expandPath(args[1], &gl);
+  printf("%s has %zu options\n", cmd, gl.gl_pathc);
+  char filename[BUF_MAX];
+  for (int i = 0; i < gl.gl_pathc; i++) {
+    char *file = gl.gl_pathv[i];
 
-  // Open the file for reading
-  mode_t MODE = (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-  int fd;
+    // Open the file for reading
+    mode_t MODE = (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+    int fd;
 
-  int err;
-  const char *response;
-  if ((err = access(file, R_OK)) < 0) {
-    switch (errno) {
-      case ENOENT:
-        response = "file does not exist";
-        break;
-      case EACCES:
-        response = "permission denied";
-        break;
-      default:
-        response = "an unknown error occured";
-        break;
+    int err;
+    const char *response;
+    if ((err = access(file, R_OK)) < 0) {
+      switch (errno) {
+        case ENOENT:
+          response = "file does not exist";
+          break;
+        case EACCES:
+          response = "permission denied";
+          break;
+        default:
+          response = "an unknown error occured";
+          break;
+      }
+    } else {
+      response = FILE_OK;
     }
-  } else {
-    response = FILE_OK;
+    unsigned long len = htonl(strlen(response));
+    if (write(sd, &len, sizeof(len)) < 0)
+      perror_exit("write error");
+
+    if (write(sd, response, strlen(response)) < 0)
+      perror_exit("write error");
+
+    if (err < 0)
+      return -1;
+      //continue;
+
+    if ((fd = open(file, O_RDONLY, MODE)) < 0) {
+      perror_exit("open error");
+    }
+
+    // Send file name
+    memset(filename, 0, BUF_MAX);
+    strcpy(filename, basename(gl.gl_pathv[i]));
+    send_msg(filename, sd);
+
+    // Send the file to the server
+    if (sndfile(sd, fd, file) < 0) {
+      perror("sndfile error");
+    } else {
+      rec_msg(&msg, sd);
+      printf("%s\n", msg);
+      free(msg);
+
+      if ((i+1) < gl.gl_pathc)
+        send_msg("More",sd);
+    }
   }
-  unsigned long len = htonl(strlen(response));
-  if (write(sd, &len, sizeof(len)) < 0)
-    perror_exit("write error");
 
-  if (write(sd, response, strlen(response)) < 0)
-    perror_exit("write error");
-
-  if (err < 0)
-    return -1;
-    //continue;
-
-  if ((fd = open(file, O_RDONLY, MODE)) < 0) {
-    perror_exit("open error");
-  }
-
-  // Send the file to the server
-  if (sndfile(sd, fd, file) < 0) {
-    perror("sndfile error");
-  }
+  send_msg("Done",sd);
   return 0;
 }
 

@@ -209,7 +209,8 @@ int builtin_put(char * cmd, char ** args, int sd) {
 int builtin_get(char * cmd, char ** args, int sd) {
 
   int bytes_sent, bytes_recv;
-  printf("begin processing \"put\" command\n");
+  int f_continue = 1;
+  printf("begin processing \"get\" command\n");
 
   // Send command size to server
   unsigned long size = htonl(strlen(cmd));
@@ -219,39 +220,54 @@ int builtin_get(char * cmd, char ** args, int sd) {
   if ((bytes_sent = write(sd, cmd, strlen(cmd))) < 0)
     perror_exit("error sending message");
 
-  // Receive response from server
-  unsigned long len;
-  if ((bytes_recv = read(sd, &len, sizeof(len))) < 0)
-    perror_exit("read error");
-  
-  len = ntohl(len);
-  char response[len+1];
-  memset(response, 0, len+1);
-  if ((read(sd, &response, len)) < 0)
-    perror_exit("read error");
+  do {
+    // Receive response from server
+    unsigned long len;
+    if ((bytes_recv = read(sd, &len, sizeof(len))) < 0)
+      perror_exit("read error");
+    
+    len = ntohl(len);
+    char response[len+1];
+    memset(response, 0, len+1);
+    if ((read(sd, &response, len)) < 0)
+      perror_exit("read error");
 
-  printf("response: %s\n", response);
+    printf("response: %s\n", response);
 
-  if (strcmp(response, FILE_OK) == 0) {
-    /**
-    int arg_count = countArgsToken(buf, " ");
-    if (arg_count != 2) {
-      fprintf(stderr, "Error: expected 2 tokens but received %d\n", arg_count);
-      continue;
-    }
-    char *args[arg_count + 1];
-    parseOnToken(buf, args, " ");
-    **/
-    char *file = args[1];
+    if (strcmp(response, FILE_OK) == 0) {
+      /**
+      int arg_count = countArgsToken(buf, " ");
+      if (arg_count != 2) {
+        fprintf(stderr, "Error: expected 2 tokens but received %d\n", arg_count);
+        continue;
+      }
+      char *args[arg_count + 1];
+      parseOnToken(buf, args, " ");
+      **/
 
-    // Receive the file
-    if (recvfile(sd, file) < 0)
-      perror_exit("recvfile error");
+      //Get the file name from server
+      char * filename;
+      rec_msg(&filename, sd);
+      char *file = filename;
 
-  } else {
-    fprintf(stderr, "error: %s\n", response);
-    return -1;
-  }      
+      // Receive the file
+      if (recvfile(sd, file) < 0)
+        perror_exit("recvfile error");
+      else {
+        printf("Got %s\n", filename);
+        free(filename);
+        send_msg("Done", sd);
+        char * msg;
+        rec_msg(&msg, sd);
+        if (strcmp(msg, "Done") == 0)
+          f_continue = 0;
+        free(msg);
+      }
+    } else {
+      fprintf(stderr, "error: %s\n", response);
+      return -1;
+    }      
+  }while(f_continue);
   return 0;
 }
 
