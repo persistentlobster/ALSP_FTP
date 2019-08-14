@@ -50,6 +50,14 @@ void parseOnToken(char *src, char *result[], char *token) {
 }
 
 /**
+ * Wrapper around glob() to expand '~', wildcards, etc
+ * Remember to call globfree() on holder
+ */
+int expandPath(char * path, glob_t *holder) {
+  return glob(path, GLOB_TILDE, NULL, holder);
+};
+
+/**
  * Reads the contents from a file and sends to server over socket
  * Returns number of bytes sent on success, or -1 on failure.
  */
@@ -114,7 +122,6 @@ int recvfile(int sd, const char *filename) {
     perror_exit("read error");
   }
   filesize = (unsigned long) ntohl(filesize);
-  printf("About to receive %lu bytes\n", filesize);
 
   // 1. Create/overwrite file
   if ((fd_dst = open(filename, O_WRONLY | O_CREAT | O_TRUNC, MODE)) < 0) {

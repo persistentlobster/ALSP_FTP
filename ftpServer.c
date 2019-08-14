@@ -11,54 +11,25 @@
 
 const char *FILE_OK = "received command";
 const int BAD_CMD = -1;
-int bytes_recv;
-char c;
 
-/**
- * Executes shell commands on the server and sends
- * output back to client.
- */
-int ls_cmd(const char *cmd, int sd) {
-  FILE *fp;
-  char buf[BUF_MAX];
+const int L_INFO = 1;
+const int L_ERR  = 2;
+const int L_PERR = 3;
 
-  memset(&buf, 0, sizeof(buf));
-
-  fp = popen(cmd, "r");
-  if (!fp)
-    return 0;
-
-  int ch;
-  while ((ch = fgetc(fp)) != EOF) {
-    strcat(buf, (char*) &ch);
-  } 
-  
-  // Check that it was EOF and not a read error
-  if (!feof(fp)) {
-    perror("error reading ls output");
-    return 0;
-  }
-
-  // Remove trailing newline
-  char *cp;
-  if ((cp = strrchr(buf, '\n')) != NULL) {
-    *cp = ' ';
-  }
-
-  pclose(fp);
-  send_msg(buf, sd);
-  return 1;
-}
-
-/**
- * Checks if shell command is supported by server
- */
-int is_supported_command(char *cmd) {
-  int supported = 0;
-  if (strcmp(cmd, "ls") == 0)
-    supported = 1;
-  
-  return supported;
+void logger(char * msg, int loglevel) {
+  int errnoCopy = errno;
+  time_t t = time(NULL);
+  char timestamp[50];
+  strftime(timestamp, 50, "[%D %T]", localtime(&t));
+ 
+  if (loglevel == L_INFO)
+    fprintf(stdout, "%s %s\n", timestamp, msg);
+  else if (loglevel == L_ERR)
+    fprintf(stderr, "%s %s\n", timestamp, msg);
+  else if (loglevel == L_PERR)
+    fprintf(stderr, "%s %s : %s\n", timestamp, msg, strerror(errnoCopy));
+  else
+    fprintf(stdout, "%s %s\n", timestamp, msg);
 }
 
 /************************/
@@ -81,7 +52,8 @@ int builtin_pwd(char * cmd, char ** args, int sd) {
   char buf[PATH_MAX];
   int ret = 0;
   if (getcwd(buf,PATH_MAX) == NULL) {
-    perror("Unable to get current working directory");
+    //perror("Unable to get current working directory");
+    logger("Unable to get current working directory", L_PERR);
     strcpy(buf, "Server unable to get current working directory\n");
     ret = -1;
   }
@@ -89,79 +61,153 @@ int builtin_pwd(char * cmd, char ** args, int sd) {
   return ret;
 }
 
-int builtin_put(char * cmd, char ** args, int sd) {
-  printf("received \"put\" command from client\n");
-  printf("buf is: %s\n", cmd);
+// Change the current working directory on the server.
+// Sends back the new current working dir to client
+int builtin_cd(char * cmd, char ** args, int sd) {
+  char buf[BUF_MAX];
+  int ret = 0;
+
+  memset(buf, 0, BUF_MAX);
+  if (args[1] == NULL) {
+    //fprintf(stderr, "No directory provided\n");
+    logger("No directory provided", L_ERR);
+    strcpy(buf, "No directory provided\n");
+    ret = -1;
+  } else {
+    glob_t gl;
+    expandPath(args[1], &gl);
+    if (chdir(gl.gl_pathv[0]) < 0) {
+      perror(gl.gl_pathv[0]);
+      strcpy(buf, strerror(errno));
+      ret = -1;
+      globfree(&gl);
+    } else {
+      globfree(&gl);
+      return builtin_pwd(NULL, NULL, sd);
+    }
+  }
+  send_msg(buf, sd);
+  return ret;
+}
+
+// Executes shell commands on the server and sends
+// output back to client.
+int builtin_ls(char *cmd, char ** args, int sd) {
+  FILE *fp;
+  char buf[BUF_MAX];
+
+  memset(&buf, 0, sizeof(buf));
+
+  fp = popen(cmd, "r");
+  if (!fp)
+    return -1;
+
+  int ch;
+  while ((ch = fgetc(fp)) != EOF) {
+    strcat(buf, (char*) &ch);
+  } 
   
-  // (2 for tokens, 1 for terminating null byte)
-  /**
-  char *args[3];
-  parseOnToken(buf, args, " ");
-  **/
+  // Check that it was EOF and not a read error
+  if (!feof(fp)) {
+    //perror("error reading ls output");
+    logger("error reading ls output", L_PERR);
+    return -1;
+  }
+
+  // Remove trailing newline
+  char *cp;
+  if ((cp = strrchr(buf, '\n')) != NULL) {
+    *cp = ' ';
+  }
+
+  pclose(fp);
+  send_msg(buf, sd);
+  return 0;
+}
+
+int builtin_put(char * cmd, char ** args, int sd) {
+  //printf("received \"put\" command from client\n");
+  //printf("buf is: %s\n", cmd);
+  
   char *file = args[1];
 
   // Receive the file
   if (recvfile(sd, file) < 0)
     perror_exit("recvfile error");
+  else 
+    send_msg(cmd, sd);
 
   return 0;
 }
 
 int builtin_get(char * cmd, char ** args, int sd) {
+  char * msg;
+  //printf("received \"get\" command from client\n");
 
-  printf("received \"get\" command from client\n");
+  glob_t gl;
+  expandPath(args[1], &gl);
+  //printf("%s has %zu options\n", cmd, gl.gl_pathc);
+  char filename[BUF_MAX];
+  for (int i = 0; i < gl.gl_pathc; i++) {
+    char *file = gl.gl_pathv[i];
 
-  /**
-  int arg_count = countArgsToken(buf, " ");
-  if (arg_count != 2) {
-    fprintf(stderr, "Error: expected 2 tokens but received %d\n", arg_count);
-    continue;
-  }
-  char *args[arg_count + 1];
-  parseOnToken(buf, args, " ");
-  **/
-  char *file = args[1];
+    // Open the file for reading
+    mode_t MODE = (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+    int fd;
 
-  // Open the file for reading
-  mode_t MODE = (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-  int fd;
-
-  int err;
-  const char *response;
-  if ((err = access(file, R_OK)) < 0) {
-    switch (errno) {
-      case ENOENT:
-        response = "file does not exist";
-        break;
-      case EACCES:
-        response = "permission denied";
-        break;
-      default:
-        response = "an unknown error occured";
-        break;
+    int err;
+    const char *response;
+    if ((err = access(file, R_OK)) < 0) {
+      switch (errno) {
+        case ENOENT:
+          response = "file does not exist";
+          break;
+        case EACCES:
+          response = "permission denied";
+          break;
+        default:
+          response = "an unknown error occured";
+          break;
+      }
+    } else {
+      response = FILE_OK;
     }
-  } else {
-    response = FILE_OK;
+    unsigned long len = htonl(strlen(response));
+    if (write(sd, &len, sizeof(len)) < 0)
+      perror_exit("write error");
+
+    if (write(sd, response, strlen(response)) < 0)
+      perror_exit("write error");
+
+    if (err < 0)
+      return -1;
+      //continue;
+
+    if ((fd = open(file, O_RDONLY, MODE)) < 0) {
+      perror_exit("open error");
+    }
+
+    // Send file name
+    memset(filename, 0, BUF_MAX);
+    strcpy(filename, basename(gl.gl_pathv[i]));
+    send_msg(filename, sd);
+
+    // Send the file to the server
+    if (sndfile(sd, fd, file) < 0) {
+      //perror("sndfile error");
+      logger("sndfile error", L_PERR);
+    } else {
+      rec_msg(&msg, sd);
+      //printf("%s\n", msg);
+      logger(msg, L_INFO);
+      free(msg);
+
+      if ((i+1) < gl.gl_pathc)
+        send_msg("More",sd);
+    }
   }
-  unsigned long len = htonl(strlen(response));
-  if (write(sd, &len, sizeof(len)) < 0)
-    perror_exit("write error");
 
-  if (write(sd, response, strlen(response)) < 0)
-    perror_exit("write error");
-
-  if (err < 0)
-    return -1;
-    //continue;
-
-  if ((fd = open(file, O_RDONLY, MODE)) < 0) {
-    perror_exit("open error");
-  }
-
-  // Send the file to the server
-  if (sndfile(sd, fd, file) < 0) {
-    perror("sndfile error");
-  }
+  send_msg("Done",sd);
   return 0;
 }
 
@@ -173,6 +219,10 @@ int (*getBuiltInFunc(char * cmd))(char *, char **, int) {
     return &builtin_get;
   else if (strcmp(cmd, "pwd") == 0)
     return &builtin_pwd;
+  else if (strcmp(cmd, "cd") == 0)
+    return &builtin_cd;
+  else if (strcmp(cmd, "ls") == 0)
+    return &builtin_ls;
   else
     return NULL;
 }
@@ -188,10 +238,12 @@ void run_loop(int client_sc) {
       memset(buf, 0, BUF_MAX);
       char * msg = NULL;
       if (rec_msg(&msg, client_sc) == 0) {
-        printf("Client disconnected");
+        //printf("Client disconnected");
+        logger("Client disconnected", L_INFO);
         exit(0);
       }
-      printf("Got %s from client\n", msg);
+      //printf("Got %s from client\n", msg);
+      logger(msg, L_INFO);
       strcpy(buf, msg);
       free(msg);
 
@@ -207,20 +259,18 @@ void run_loop(int client_sc) {
       // Check if it's a builtin, and execute if it is
       int (*func)() = getBuiltInFunc(args[0]);
       if (func) {
-        func(buf, args, client_sc);
+        func(bufCopy, args, client_sc);
         continue;
       }
 
-      // Otherwise parse the input here
+      // If its not a builtin, its not a supported command
       // Send a message back to client
-      if (is_supported_command(buf)) {
-        ls_cmd(bufCopy, client_sc);
-
-      } else {
-        memset(buf, 0, BUF_MAX);
-        strcpy(buf, "Got your message");
-        send_msg(buf, client_sc);
-      }
+      //printf("%s is not a supported command\n", bufCopy);
+      strcat(bufCopy, " not supported");
+      logger(bufCopy, L_INFO);
+      memset(buf, 0, BUF_MAX);
+      strcpy(buf, "Invalid Command");
+      send_msg(buf, client_sc);
     }
     close(client_sc);
 }
@@ -251,13 +301,15 @@ int main(int argc, char *argv[]) {
 		perror_exit("error binding to socket\n");
 	
 	listen(sd, 5);
-  printf("Sever started...\n");
+  //printf("Sever started...\n");
+  logger("Server started...", L_INFO);
 
   /** Wait for a client to connect **/
   while(1) {
     if ((client_sc = accept(sd, (struct sockaddr *) NULL, NULL)) < 0) 
       perror_exit("error accepting request");
 
+    logger("Client connected", L_INFO);
     int pid = fork();
 
     if (pid == 0) { //Child

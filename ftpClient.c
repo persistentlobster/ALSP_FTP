@@ -71,6 +71,17 @@ int resolve_host(char *hostname, char *ip) {
 
 /** STEP 1: Define builtin function here **/
 
+// Run cmd in the shell
+int builtin_escape(char * cmd, char ** args, int sd) {
+  if (system(NULL) == 0) {
+    fprintf(stderr, "No shell is available...\n");
+    return -1;
+  }
+
+  system(++cmd);
+  return 0;
+}
+
 // Exits the shell.
 int builtin_exit(char * cmd, char ** args, int sd) {
   printf("Exiting...\n");
@@ -108,61 +119,84 @@ int builtin_lls(char * cmd, char ** args, int sd) {
   return 0;
 }
 
+// Change the current working directory
+// Then print the directory out to the user
+int builtin_lcd(char * cmd, char ** args, int sd) {
+  if (args[1] == NULL) {
+    fprintf(stderr, "No directory provided\n");
+    return -1;
+  }
+  glob_t gl;
+  expandPath(args[1], &gl);
+  if (chdir(gl.gl_pathv[0]) < 0) {
+    perror(gl.gl_pathv[0]);
+    globfree(&gl);
+    return -1;
+  }
+  globfree(&gl);
+
+  return builtin_lpwd(NULL, NULL, 0);
+}
+
+// Put the files onto the server
 int builtin_put(char * cmd, char ** args, int sd) {
   printf("begin processing \"put\" command\n");
 
-  // Parse args and keep original copy to pass to server
-  /**
-  char bufCopy[strlen(buf) + 1];
-  strcpy(bufCopy, buf);
+  glob_t gl;
+  expandPath(args[1], &gl);
+  char full_cmd[BUF_MAX];
+  char * msg;
+  for (int i = 0; i < gl.gl_pathc; i++) {
+    char *file = gl.gl_pathv[i];
 
-  int arg_count = countArgsToken(buf, " ");
-  if (arg_count != 2) {
-    fprintf(stderr, "Error: expected 2 tokens but received %d\n", arg_count);
-    snd_bad_cmd(sd);
-    continue;
+    // Check if file access is OK (file exists or insufficient permissions)
+    if (access(file, R_OK) < 0) {
+      perror("error accessing file");
+      snd_bad_cmd(sd);
+      //return -1;
+      continue;
+    } 
+
+    // Command is OK. Send command (and size) to server
+    memset(full_cmd, 0, BUF_MAX);
+    strcpy(full_cmd, "put ");
+    strcat(full_cmd, basename(gl.gl_pathv[i]));
+    unsigned long size = htonl(strlen(full_cmd));
+    write(sd, (char *) &size, sizeof(size));
+
+    if (write(sd, full_cmd, strlen(full_cmd)) < 0)
+      perror("error sending message");
+      //perror_exit("error sending message");
+    
+    // Open the file for reading
+    mode_t MODE = (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+    int fd;
+
+    if ((fd = open(file, O_RDONLY, MODE)) < 0) {
+      perror("Open error");
+      snd_bad_cmd(sd);
+      //perror_exit("open error");
+    }
+    
+    // Send the file to the server
+    if (sndfile(sd, fd, gl.gl_pathv[i]) < 0) {
+      perror("sndfile error");
+    }
+    
+    rec_msg(&msg, sd);
+    printf("%s\n", msg);
+    free(msg);
   }
-
-  char *args[arg_count + 1];
-  parseOnToken(buf, args, " ");
-  **/
-  char *file = args[1];
-
-  // Check if file access is OK (file exists or insufficient permissions)
-  if (access(file, R_OK) < 0) {
-    perror("error accessing file");
-    snd_bad_cmd(sd);
-    return -1;
-  } 
-
-  // Command is OK. Send command (and size) to server
-  unsigned long size = htonl(strlen(cmd));
-  write(sd, (char *) &size, sizeof(size));
-
-  if (write(sd, cmd, strlen(cmd)) < 0)
-    perror_exit("error sending message");
-  
-  // Open the file for reading
-  mode_t MODE = (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-  int fd;
-
-  if ((fd = open(file, O_RDONLY, MODE)) < 0) {
-    snd_bad_cmd(sd);
-    perror_exit("open error");
-  }
-  
-  // Send the file to the server
-  if (sndfile(sd, fd, file) < 0) {
-    perror("sndfile error");
-  }
-
+  globfree(&gl);
   return 0;
 }
 
+// Retrieve files from the server
 int builtin_get(char * cmd, char ** args, int sd) {
 
   int bytes_sent, bytes_recv;
-  printf("begin processing \"put\" command\n");
+  int f_continue = 1;
+  printf("begin processing \"get\" command\n");
 
   // Send command size to server
   unsigned long size = htonl(strlen(cmd));
@@ -172,45 +206,52 @@ int builtin_get(char * cmd, char ** args, int sd) {
   if ((bytes_sent = write(sd, cmd, strlen(cmd))) < 0)
     perror_exit("error sending message");
 
-  // Receive response from server
-  unsigned long len;
-  if ((bytes_recv = read(sd, &len, sizeof(len))) < 0)
-    perror_exit("read error");
-  
-  len = ntohl(len);
-  char response[len+1];
-  memset(response, 0, len+1);
-  if ((read(sd, &response, len)) < 0)
-    perror_exit("read error");
+  do {
+    // Receive response from server
+    unsigned long len;
+    if ((bytes_recv = read(sd, &len, sizeof(len))) < 0)
+      perror_exit("read error");
+    
+    len = ntohl(len);
+    char response[len+1];
+    memset(response, 0, len+1);
+    if ((read(sd, &response, len)) < 0)
+      perror_exit("read error");
 
-  printf("response: %s\n", response);
+    printf("response: %s\n", response);
 
-  if (strcmp(response, FILE_OK) == 0) {
-    /**
-    int arg_count = countArgsToken(buf, " ");
-    if (arg_count != 2) {
-      fprintf(stderr, "Error: expected 2 tokens but received %d\n", arg_count);
-      continue;
-    }
-    char *args[arg_count + 1];
-    parseOnToken(buf, args, " ");
-    **/
-    char *file = args[1];
+    if (strcmp(response, FILE_OK) == 0) {
+      //Get the file name from server
+      char * filename;
+      rec_msg(&filename, sd);
+      char *file = filename;
 
-    // Receive the file
-    if (recvfile(sd, file) < 0)
-      perror_exit("recvfile error");
-
-  } else {
-    fprintf(stderr, "error: %s\n", response);
-    return -1;
-  }      
+      // Receive the file
+      if (recvfile(sd, file) < 0)
+        perror_exit("recvfile error");
+      else {
+        printf("Got %s\n", filename);
+        free(filename);
+        send_msg("Done", sd);
+        char * msg;
+        rec_msg(&msg, sd);
+        if (strcmp(msg, "Done") == 0)
+          f_continue = 0;
+        free(msg);
+      }
+    } else {
+      fprintf(stderr, "error: %s\n", response);
+      return -1;
+    }      
+  }while(f_continue);
   return 0;
 }
 
 /** STEP 2: Add builtin function here **/
 int (*getBuiltInFunc(char * cmd))(char *, char **, int) {
-  if (strcmp(cmd, "exit") == 0)
+  if (cmd[0] == '!')
+    return &builtin_escape;
+  else if (strcmp(cmd, "exit") == 0)
     return &builtin_exit;
   else if (strcmp(cmd, "put") == 0)
     return &builtin_put;
@@ -220,6 +261,8 @@ int (*getBuiltInFunc(char * cmd))(char *, char **, int) {
     return &builtin_lpwd;
   else if (strncmp(cmd, "lls", 3) == 0)
     return &builtin_lls;
+  else if (strcmp(cmd, "lcd") == 0)
+    return &builtin_lcd;
   else
     return NULL;
 }
@@ -295,68 +338,3 @@ int main(int argc, char **argv) {
 
   exit(EXIT_SUCCESS);
 }
-
-
-
-/**
- * Reads the contents from a file and sends to server over socket
- * Returns number of bytes sent on success, or -1 on failure.
- */
-/**
-int sndfile(int sd, int fd, char *filename) {
-  struct stat st;
-  int bytes_recv, num_bytes = 0;
-  int filesize, sendsize;
-  char *buf[BUF_MAX];
-
-  memset(buf, 0, BUF_MAX);
-
-  // Get file size
-  if (stat(filename, &st) < 0) {
-    return -1;
-  }
-  filesize = st.st_size;
-  sendsize = htonl(filesize);
-
-  // Send file size to server
-  if (write(sd, (char *) &sendsize, sizeof(sendsize)) < 0) {
-    return -1;
-  }
-  printf("File size is %d bytes\n", filesize);
-  **/
-/**
-  // 2. Read file contents from socket. NOTE: Do NOT use strlen as there could be a '\n' in buf
-  while (total_read < filesize) {
-    bytes_recv = read(sd, buf, BUF_MAX);
-    total_read += bytes_recv;
-    if (bytes_recv < 0) {
-      return -1;
-    }
-
-    // 3. Write contents to file until all bytes that have been read have been written
-    void *bufp = buf;
-    while (bytes_recv > 0) {
-      int bytes_sent = write(fd_dst, bufp, bytes_recv);
-      if (bytes_sent <= 0) {
-          perror_exit("write error");
-      }
-      bytes_recv -= bytes_sent;
-      bufp += bytes_sent;
-      num_bytes += bytes_sent;
-    }
-  }
-  printf("Total bytes read: %d\n", total_read);
-  printf("Total bytes written: %d\n", num_bytes);
-  close(fd_dst);
-  return num_bytes;
-}
-**/
-
-
-   /** 
-    // remove '\n' from copy for getBuiltInFunc check
-    buf[strlen(buf)-1] = '\0';
-
-    // Check if it's a builtin, and execute if it is
-    int (*func)() = getBuiltInFunc(buf);
-    **/
