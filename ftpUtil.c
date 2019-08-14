@@ -122,7 +122,6 @@ int recvfile(int sd, const char *filename) {
     perror_exit("read error");
   }
   filesize = (unsigned long) ntohl(filesize);
-  printf("About to receive %lu bytes\n", filesize);
 
   // 1. Create/overwrite file
   if ((fd_dst = open(filename, O_WRONLY | O_CREAT | O_TRUNC, MODE)) < 0) {
@@ -162,7 +161,6 @@ int rec_msg(char ** msg, int sd) {
     if (recv(sd, &size, sizeof(size), 0) == 0)
       return 0;
     unsigned long rec_size = ntohl(size);
-    printf("About to recieve: %lu\n", rec_size);
     // Malloc memory to hold message
     *msg = malloc(rec_size+1);
     memset(*msg, 0, (rec_size+1));

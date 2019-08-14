@@ -138,24 +138,9 @@ int builtin_lcd(char * cmd, char ** args, int sd) {
   return builtin_lpwd(NULL, NULL, 0);
 }
 
+// Put the files onto the server
 int builtin_put(char * cmd, char ** args, int sd) {
   printf("begin processing \"put\" command\n");
-
-  // Parse args and keep original copy to pass to server
-  /**
-  char bufCopy[strlen(buf) + 1];
-  strcpy(bufCopy, buf);
-
-  int arg_count = countArgsToken(buf, " ");
-  if (arg_count != 2) {
-    fprintf(stderr, "Error: expected 2 tokens but received %d\n", arg_count);
-    snd_bad_cmd(sd);
-    continue;
-  }
-
-  char *args[arg_count + 1];
-  parseOnToken(buf, args, " ");
-  **/
 
   glob_t gl;
   expandPath(args[1], &gl);
@@ -206,6 +191,7 @@ int builtin_put(char * cmd, char ** args, int sd) {
   return 0;
 }
 
+// Retrieve files from the server
 int builtin_get(char * cmd, char ** args, int sd) {
 
   int bytes_sent, bytes_recv;
@@ -235,16 +221,6 @@ int builtin_get(char * cmd, char ** args, int sd) {
     printf("response: %s\n", response);
 
     if (strcmp(response, FILE_OK) == 0) {
-      /**
-      int arg_count = countArgsToken(buf, " ");
-      if (arg_count != 2) {
-        fprintf(stderr, "Error: expected 2 tokens but received %d\n", arg_count);
-        continue;
-      }
-      char *args[arg_count + 1];
-      parseOnToken(buf, args, " ");
-      **/
-
       //Get the file name from server
       char * filename;
       rec_msg(&filename, sd);
@@ -362,68 +338,3 @@ int main(int argc, char **argv) {
 
   exit(EXIT_SUCCESS);
 }
-
-
-
-/**
- * Reads the contents from a file and sends to server over socket
- * Returns number of bytes sent on success, or -1 on failure.
- */
-/**
-int sndfile(int sd, int fd, char *filename) {
-  struct stat st;
-  int bytes_recv, num_bytes = 0;
-  int filesize, sendsize;
-  char *buf[BUF_MAX];
-
-  memset(buf, 0, BUF_MAX);
-
-  // Get file size
-  if (stat(filename, &st) < 0) {
-    return -1;
-  }
-  filesize = st.st_size;
-  sendsize = htonl(filesize);
-
-  // Send file size to server
-  if (write(sd, (char *) &sendsize, sizeof(sendsize)) < 0) {
-    return -1;
-  }
-  printf("File size is %d bytes\n", filesize);
-  **/
-/**
-  // 2. Read file contents from socket. NOTE: Do NOT use strlen as there could be a '\n' in buf
-  while (total_read < filesize) {
-    bytes_recv = read(sd, buf, BUF_MAX);
-    total_read += bytes_recv;
-    if (bytes_recv < 0) {
-      return -1;
-    }
-
-    // 3. Write contents to file until all bytes that have been read have been written
-    void *bufp = buf;
-    while (bytes_recv > 0) {
-      int bytes_sent = write(fd_dst, bufp, bytes_recv);
-      if (bytes_sent <= 0) {
-          perror_exit("write error");
-      }
-      bytes_recv -= bytes_sent;
-      bufp += bytes_sent;
-      num_bytes += bytes_sent;
-    }
-  }
-  printf("Total bytes read: %d\n", total_read);
-  printf("Total bytes written: %d\n", num_bytes);
-  close(fd_dst);
-  return num_bytes;
-}
-**/
-
-
-   /** 
-    // remove '\n' from copy for getBuiltInFunc check
-    buf[strlen(buf)-1] = '\0';
-
-    // Check if it's a builtin, and execute if it is
-    int (*func)() = getBuiltInFunc(buf);
-    **/

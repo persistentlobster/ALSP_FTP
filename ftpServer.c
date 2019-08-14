@@ -11,55 +11,6 @@
 
 const char *FILE_OK = "received command";
 const int BAD_CMD = -1;
-int bytes_recv;
-char c;
-
-/**
- * Executes shell commands on the server and sends
- * output back to client.
- */
-int ls_cmd(const char *cmd, int sd) {
-  FILE *fp;
-  char buf[BUF_MAX];
-
-  memset(&buf, 0, sizeof(buf));
-
-  fp = popen(cmd, "r");
-  if (!fp)
-    return 0;
-
-  int ch;
-  while ((ch = fgetc(fp)) != EOF) {
-    strcat(buf, (char*) &ch);
-  } 
-  
-  // Check that it was EOF and not a read error
-  if (!feof(fp)) {
-    perror("error reading ls output");
-    return 0;
-  }
-
-  // Remove trailing newline
-  char *cp;
-  if ((cp = strrchr(buf, '\n')) != NULL) {
-    *cp = ' ';
-  }
-
-  pclose(fp);
-  send_msg(buf, sd);
-  return 1;
-}
-
-/**
- * Checks if shell command is supported by server
- */
-int is_supported_command(char *cmd) {
-  int supported = 0;
-  if (strcmp(cmd, "ls") == 0)
-    supported = 1;
-  
-  return supported;
-}
 
 /************************/
 /** BUILT-IN FUNCTIONS **/
@@ -117,6 +68,40 @@ int builtin_cd(char * cmd, char ** args, int sd) {
   return ret;
 }
 
+// Executes shell commands on the server and sends
+// output back to client.
+int builtin_ls(char *cmd, char ** args, int sd) {
+  FILE *fp;
+  char buf[BUF_MAX];
+
+  memset(&buf, 0, sizeof(buf));
+
+  fp = popen(cmd, "r");
+  if (!fp)
+    return -1;
+
+  int ch;
+  while ((ch = fgetc(fp)) != EOF) {
+    strcat(buf, (char*) &ch);
+  } 
+  
+  // Check that it was EOF and not a read error
+  if (!feof(fp)) {
+    perror("error reading ls output");
+    return -1;
+  }
+
+  // Remove trailing newline
+  char *cp;
+  if ((cp = strrchr(buf, '\n')) != NULL) {
+    *cp = ' ';
+  }
+
+  pclose(fp);
+  send_msg(buf, sd);
+  return 0;
+}
+
 int builtin_put(char * cmd, char ** args, int sd) {
   printf("received \"put\" command from client\n");
   printf("buf is: %s\n", cmd);
@@ -141,15 +126,6 @@ int builtin_get(char * cmd, char ** args, int sd) {
   char * msg;
   printf("received \"get\" command from client\n");
 
-  /**
-  int arg_count = countArgsToken(buf, " ");
-  if (arg_count != 2) {
-    fprintf(stderr, "Error: expected 2 tokens but received %d\n", arg_count);
-    continue;
-  }
-  char *args[arg_count + 1];
-  parseOnToken(buf, args, " ");
-  **/
   glob_t gl;
   expandPath(args[1], &gl);
   printf("%s has %zu options\n", cmd, gl.gl_pathc);
@@ -225,6 +201,8 @@ int (*getBuiltInFunc(char * cmd))(char *, char **, int) {
     return &builtin_pwd;
   else if (strcmp(cmd, "cd") == 0)
     return &builtin_cd;
+  else if (strcmp(cmd, "ls") == 0)
+    return &builtin_ls;
   else
     return NULL;
 }
@@ -263,16 +241,12 @@ void run_loop(int client_sc) {
         continue;
       }
 
-      // Otherwise parse the input here
+      // If its not a builtin, its not a supported command
       // Send a message back to client
-      if (is_supported_command(buf)) {
-        ls_cmd(bufCopy, client_sc);
-
-      } else {
-        memset(buf, 0, BUF_MAX);
-        strcpy(buf, "Got your message");
-        send_msg(buf, client_sc);
-      }
+      printf("%s is not a supported command\n", bufCopy);
+      memset(buf, 0, BUF_MAX);
+      strcpy(buf, "Invalid Command");
+      send_msg(buf, client_sc);
     }
     close(client_sc);
 }
