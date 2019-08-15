@@ -40,3 +40,4 @@ Here are the featues & commands that our program supports:
 - `get`        get file(s) from the server
 
 Supports wildcard and tilde expansions
+Server supports multiple client connections
